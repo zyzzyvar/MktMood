@@ -39,6 +39,15 @@ curl "http://127.0.0.1:3000/api/health"
 
 如果 `127.0.0.1` 可访问、外部地址不可访问，通常不是应用层限制，而是 macOS 防火墙、路由器端口转发、Nginx/反向代理或运营商入站策略需要放行 `3000/tcp`。
 
+服务器更新建议统一使用仓库内的部署脚本：
+
+```bash
+cd /Users/zyzbot/MyProject/MktMood
+bash deploy.sh
+```
+
+脚本会拉取代码、安装依赖、做语法检查、重建 PM2 进程、清理占用 3000 端口的旧进程，并验证健康检查、宏观解释库、异动个股画像和 Hermes 监控接口。
+
 ## Agent API
 
 - `GET /api/snapshot`：完整市场快照、指标、维度、框架解读。
