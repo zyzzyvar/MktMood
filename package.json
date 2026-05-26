@@ -1,0 +1,18 @@
+{
+  "name": "market-atmosphere-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A market atmosphere dashboard with live indicators, trend interpretation, framework-level synthesis, and agent APIs.",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "pg": "^8.21.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

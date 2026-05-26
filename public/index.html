@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>市场氛围综合看板</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Market Atmosphere</p>
+        <h1>市场氛围综合看板</h1>
+      </div>
+      <div class="top-actions">
+        <button id="refreshButton" class="icon-button" type="button" title="刷新数据" aria-label="刷新数据">
+          <span class="refresh-icon"></span>
+        </button>
+        <div class="timestamp">
+          <span>更新时间</span>
+          <strong id="updatedAt">加载中</strong>
+        </div>
+      </div>
+    </header>
+
+    <div id="loadingOverlay" class="loading-overlay" hidden>
+      <div class="loading-panel">
+        <div class="loading-head">
+          <strong>正在更新市场氛围</strong>
+          <span id="loadingPercent">0%</span>
+        </div>
+        <div class="loading-bar"><span id="loadingBar"></span></div>
+        <div id="loadingStep" class="loading-step">准备请求数据源</div>
+        <div class="loading-steps" id="loadingSteps"></div>
+      </div>
+    </div>
+
+    <main class="layout">
+      <section class="overview-band">
+        <div class="score-panel">
+          <div class="score-ring" id="scoreRing">
+            <span id="marketScore">--</span>
+          </div>
+          <div>
+            <p class="section-kicker">综合氛围</p>
+            <h2 id="regimeName">读取中</h2>
+            <p id="regimeDescription">正在聚合美元、利率、波动率、股指、商品和中国资产数据。</p>
+          </div>
+        </div>
+        <div class="flag-strip" id="flagStrip"></div>
+      </section>
+
+      <section class="event-section">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">事件雷达</p>
+            <h2>未来 7 天关键发布</h2>
+          </div>
+          <div class="event-summary" id="eventSummary"></div>
+        </div>
+        <div class="event-grid">
+          <div>
+            <h3>美国经济数据</h3>
+            <div id="macroEvents" class="event-list"></div>
+          </div>
+          <div>
+            <h3>行业龙头财报</h3>
+            <div id="earningsEvents" class="event-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="anomaly-section">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">全市场异动雷达</p>
+            <h2>个股与行业异常波动</h2>
+          </div>
+          <div class="event-summary" id="anomalySummary"></div>
+        </div>
+        <div class="event-grid">
+          <div>
+            <h3>显著个股异动</h3>
+            <div id="equityAnomalies" class="event-list"></div>
+          </div>
+          <div>
+            <h3>行业/板块异动</h3>
+            <div id="sectorMoves" class="event-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="framework-section">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">综合解读版本</p>
+            <h2>不同框架看同一组数据</h2>
+          </div>
+          <div class="segmented" id="frameworkTabs"></div>
+        </div>
+        <div id="frameworkPanel" class="framework-panel"></div>
+      </section>
+
+      <section class="dashboard-grid">
+        <aside class="dimension-panel">
+          <div class="section-heading compact">
+            <div>
+              <p class="section-kicker">维度雷达</p>
+              <h2>资金正在偏向哪里</h2>
+            </div>
+          </div>
+          <div id="dimensionList" class="dimension-list"></div>
+        </aside>
+
+        <section class="indicator-panel">
+          <div class="section-heading compact">
+            <div>
+              <p class="section-kicker">指标层</p>
+              <h2>数据与直观解读</h2>
+            </div>
+            <div class="filters" id="categoryFilters"></div>
+          </div>
+          <div class="indicator-table" id="indicatorTable"></div>
+        </section>
+      </section>
+
+      <section class="agent-section">
+        <div>
+          <p class="section-kicker">Agent API</p>
+          <h2>给后续交易 Agent 的稳定入口</h2>
+        </div>
+        <div class="endpoint-grid">
+          <code>/api/snapshot</code>
+          <code>/api/frameworks</code>
+          <code>/api/agent/context?framework=liquidity-risk</code>
+        </div>
+      </section>
+    </main>
+
+    <template id="sparklineTemplate">
+      <svg class="sparkline" viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true">
+        <polyline fill="none" stroke-width="2"></polyline>
+      </svg>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
