@@ -266,6 +266,7 @@ function renderEventList(events, kind) {
           <span class="pill ${event.priority === "high" ? "pressure" : "neutral"}">${escapeHtml(kind === "earnings" ? event.sector : event.theme)}</span>
         </div>
         <p>${escapeHtml(event.watchText)}</p>
+        ${kind === "macro" ? renderMacroInterpretation(event.interpretation) : ""}
         ${renderEventRevisions(event.revisions || [])}
         <div class="event-meta">
           <span>预测：${escapeHtml(event.expectation || "暂无")}</span>
@@ -274,6 +275,25 @@ function renderEventList(events, kind) {
       </div>
     </article>
   `).join("");
+}
+
+function renderMacroInterpretation(interpretation) {
+  if (!interpretation) return "";
+  return `
+    <details class="event-interpretation">
+      <summary>指标解读与操作关注</summary>
+      <div class="interpretation-grid">
+        <p><strong>这是什么：</strong>${escapeHtml(interpretation.plain)}</p>
+        <p><strong>为什么重要：</strong>${escapeHtml(interpretation.professional)}</p>
+        <p><strong>高于预期：</strong>${escapeHtml(interpretation.higherThanExpected)}</p>
+        <p><strong>低于预期：</strong>${escapeHtml(interpretation.lowerThanExpected)}</p>
+        <p><strong>大幅偏高：</strong>${escapeHtml(interpretation.largePositiveSurprise)}</p>
+        <p><strong>大幅偏低：</strong>${escapeHtml(interpretation.largeNegativeSurprise)}</p>
+        <p><strong>操作关注：</strong>${escapeHtml(interpretation.actionHint)}</p>
+        <p><strong>重点观察：</strong>${escapeHtml((interpretation.watchAssets || []).join(" / "))}</p>
+      </div>
+    </details>
+  `;
 }
 
 function renderEventRevisions(revisions) {

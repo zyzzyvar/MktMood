@@ -511,6 +511,35 @@ h3 {
   line-height: 1.48;
 }
 
+.event-interpretation {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f9fc;
+}
+
+.event-interpretation summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.interpretation-grid {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.interpretation-grid p {
+  margin: 0;
+}
+
+.interpretation-grid strong {
+  color: var(--text);
+}
+
 .event-meta {
   display: flex;
   flex-wrap: wrap;

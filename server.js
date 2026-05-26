@@ -12,6 +12,7 @@ const {
   getRecentSignals,
   eventKey
 } = require("./db");
+const { findMacroEventPlaybook, genericMacroEventPlaybook } = require("./playbooks");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -1161,13 +1162,33 @@ function enrichMacroEvent(event) {
   const rule = macroEventRules.find((candidate) => haystack.includes(candidate.keyword));
   if (!rule) return null;
   const expectation = event.consensus || event.forecast || "暂无公开预测";
+  const playbook = findMacroEventPlaybook(event) || genericMacroEventPlaybook({ ...event, theme: rule.theme });
   return {
     ...event,
     theme: rule.theme,
     priority: rule.priority,
     why: rule.why,
     expectation,
-    watchText: `${event.title}${event.reference ? `（${event.reference}）` : ""}将在 ${event.daysUntil} 天内发布，市场共识/预测：${expectation}。`
+    playbook,
+    interpretation: buildEventInterpretation(event, playbook, expectation),
+    watchText: `${event.title}${event.reference ? `（${event.reference}）` : ""}将在 ${event.daysUntil} 天内发布，市场共识/预测：${expectation}。${playbook.attention}`
+  };
+}
+
+function buildEventInterpretation(event, playbook, expectation) {
+  return {
+    plain: playbook.plain,
+    professional: playbook.professional,
+    higherThanExpected: playbook.higher,
+    lowerThanExpected: playbook.lower,
+    largePositiveSurprise: playbook.largeHigh,
+    largeNegativeSurprise: playbook.largeLow,
+    attention: playbook.attention,
+    actionHint: playbook.actionHint,
+    watchAssets: playbook.watchAssets,
+    thresholds: playbook.thresholds,
+    expected: expectation,
+    previous: event.previous || "暂无"
   };
 }
 
