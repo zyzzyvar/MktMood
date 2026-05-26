@@ -1861,16 +1861,23 @@ function analyzeSignals(config, points) {
   const latest = changes.at(-1);
   const recent = changes.slice(-Math.min(profile.volLookback, changes.length));
   const avgAbs = recent.reduce((sum, item) => sum + Math.abs(item.change), 0) / recent.length;
-  const breakoutThreshold = Math.max(profile.breakoutMin, avgAbs * profile.breakoutMultiple);
+  const adaptiveThreshold = Math.max(profile.breakoutMin, avgAbs * profile.breakoutMultiple);
+  const breakoutThreshold = profile.breakoutCap
+    ? Math.min(adaptiveThreshold, profile.breakoutCap)
+    : adaptiveThreshold;
 
   if (Math.abs(latest.change) >= breakoutThreshold) {
     const direction = latest.change > 0 ? "up" : "down";
+    const actionHint = typeof profile.actionHint === "function"
+      ? profile.actionHint(direction)
+      : profile.actionHint;
     signals.push({
       type: "breakout",
       direction,
       severity: Math.abs(latest.change) >= breakoutThreshold * 1.7 ? "high" : "medium",
       label: direction === "up" ? "突然跳高" : "突然跳低",
-      detail: `${formatSignalChange(latest.change, profile)}，超过该指标突破阈值 ${formatSignalChange(breakoutThreshold, profile)}。`,
+      detail: `${formatSignalChange(latest.change, profile)}，超过该指标突破阈值 ${formatSignalThreshold(breakoutThreshold, profile)}。${actionHint ? `关注：${actionHint}` : ""}`,
+      actionHint,
       window: "latest",
       value: round(latest.change, profile.digits),
       threshold: round(breakoutThreshold, profile.digits)
@@ -1951,7 +1958,15 @@ function signalProfile(config) {
     dxy: { breakoutMin: 0.7, persistenceMinNet: 1.2, noise: 0.08 },
     cnh: { breakoutMin: 0.35, persistenceMinNet: 0.75, noise: 0.04 },
     gold: { breakoutMin: 1.4, persistenceMinNet: 3, noise: 0.15 },
-    oil: { breakoutMin: 3.5, persistenceMinNet: 7, noise: 0.4 },
+    oil: {
+      breakoutMin: 3.5,
+      breakoutCap: 3.5,
+      persistenceMinNet: 7,
+      noise: 0.4,
+      actionHint: (direction) => direction === "up"
+        ? "油价急涨可能推升通胀和能源股情绪，同时压制长久期资产；交叉观察美元、美债、库存、OPEC 和地缘消息。"
+        : "油价急跌可能是通胀降温，也可能是需求走弱；交叉观察能源股、铜、信用利差、美元和库存/OPEC 消息。"
+    },
     btc: { breakoutMin: 4.5, persistenceMinNet: 10, noise: 0.5 },
     spx: { breakoutMin: 1.5, persistenceMinNet: 3, noise: 0.12 },
     nasdaq: { breakoutMin: 2, persistenceMinNet: 4, noise: 0.15 },
@@ -1993,6 +2008,10 @@ function levelProfile(breakoutMin, persistenceMinNet, noise, digits = 2, persist
 function formatSignalChange(value, profile) {
   const sign = value > 0 ? "+" : "";
   return `${sign}${round(value, profile.digits)}${profile.suffix}`;
+}
+
+function formatSignalThreshold(value, profile) {
+  return `${round(Math.abs(value), profile.digits)}${profile.suffix}`;
 }
 
 function scoreIndicator(config, current, change1, trend20, trend60) {
@@ -2208,6 +2227,10 @@ function buildFlags(indicators, marketScore, anomalyRadar = null) {
 function signalFlagLevel(item, signal) {
   const config = [...yahooIndicators, ...fredIndicators, ...ratioIndicators].find((candidate) => candidate.id === item.id);
   const sensitivity = config?.sensitivity ?? (item.id === "fear_greed" ? -0.3 : 0);
+  if (item.id === "oil" && signal.type === "breakout") {
+    if (signal.direction === "up") return signal.severity === "high" ? "danger" : "warning";
+    return "warning";
+  }
   const supportiveDirection = sensitivity >= 0 ? "up" : "down";
   if (signal.severity === "high" && signal.direction !== supportiveDirection) return "danger";
   if (signal.direction !== supportiveDirection) return "warning";
