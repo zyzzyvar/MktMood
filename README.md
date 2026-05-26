@@ -1,137 +1,303 @@
-# 市场氛围综合看板
+# MktMood
 
-一个用于短期交易决策辅助的市场氛围 Dashboard。它把指标拆成两层：
+MktMood 是一个面向短线决策和长期资产跟踪的市场氛围雷达。
 
-- 指标层：美元指数、黄金、原油、VIX、股指、利率、中国资产等，每个指标都有趋势和直观解读。
-- 框架层：同一组数据可以按“博主五信号”“宏观四象限”“流动性-风险偏好”“黑天鹅响应”“中国资产跨境框架”等版本做综合解读。
+它不是荐股工具，也不是一个只把行情堆在屏幕上的看板。它更像一个保持清醒的市场助手：把宏观、利率、美元、黄金、风险偏好、关键数据发布、财报、个股异动和行业异动放在同一张桌子上，然后告诉你现在值得紧张、值得等待，还是值得多看一眼。
 
-视频《美股一跌就慌，一涨又后悔》提到的 5 个信号已单独建成一个框架：
+适合这些场景：
 
-- VIX 恐慌指数
-- CNN Fear & Greed Index
-- 市场广度：等权/市值权重强弱、小盘/大盘强弱
-- 信用市场：高收益债/投资级债强弱
-- 美债/美元/黄金联动：10 年期美债收益率、美元指数、黄金
+- 你长期看好一些公司，希望在短期波动里做高抛低吸。
+- 你想捕捉优质公司或传统龙头突然大跌时的“可能错杀”。
+- 你想提前知道未来 7 天有哪些宏观数据、财报和市场共识值得关注。
+- 你已经有自己的 Agent，希望它每小时读取市场上下文，并在有重要事项时提醒你。
+- 你不想每天在一堆网站之间切换，只想先知道今天市场空气里有什么味道。
 
-## 运行
+## V1.0 能做什么
+
+### 综合市场氛围
+
+MktMood 会抓取并解读一组影响股价和风险偏好的关键指标：
+
+- 美股指数：标普 500、纳斯达克、罗素 2000
+- 波动与情绪：VIX、CNN Fear & Greed
+- 利率与美元：美国 2 年期/10 年期收益率、美元指数
+- 商品与避险：黄金、原油、比特币
+- 信用与宽度：高收益债/投资级债、等权指数/市值权重指数、小盘/大盘强弱
+- 中国资产线索：人民币、港股、中概等相关观察项
+- 宏观序列：就业、通胀、利率、消费者信心等公开数据
+
+每个指标都有两层输出：
+
+- 直接解读：这个指标现在偏支撑还是偏压力，为什么。
+- 信号识别：是否出现突然跳高/跳低，是否出现连续单方向变化。
+
+### 多套分析框架
+
+同一组数据可以按不同思维框架重新解释。V1.0 内置：
+
+- 博主五信号：VIX、Fear & Greed、市场宽度、信用市场、美债/美元/黄金联动。
+- 宏观四象限：增长、通胀、利率和风险资产的组合关系。
+- 流动性-风险偏好：美元、利率、信用、波动率共同判断资金环境。
+- 黑天鹅响应：区分系统性冲击、行业冲击和个股事件。
+- 中国资产跨境框架：观察人民币、港股、中概和全球风险偏好的联动。
+
+### 未来 7 天关键发布
+
+MktMood 会提前扫描即将公布的重要事项：
+
+- 美国宏观数据：就业、通胀、GDP、PMI/ISM、消费者信心、FOMC 等。
+- 市场共识：前值、预测值、共识值。
+- 财报雷达：AI、半导体、云、广告、消费、金融、能源、医疗、中国互联网等行业代表公司的财报。
+
+宏观事件不是只显示一个名字。比如 `CB Consumer Confidence`，看板会解释它是什么、为什么重要、高于/低于预期分别意味着什么，以及应重点观察哪些资产或行业反应。
+
+### 全市场异动雷达
+
+MktMood 不要求你维护 watchlist。它会先从全市场异动榜扫描，再识别异常背后的性质：
+
+- 显著上涨/下跌的个股
+- 相对自身历史波动的异常倍数
+- 成交量放大倍数
+- 是否属于传统行业龙头、超大市值龙头、行业代表公司或高波动个股
+- 所属金融市场、交易所、行业、细分行业
+- 一句话公司介绍，帮助你快速判断这是行业线索、题材线索，还是可能需要认真研究的基本面信号
+
+示例输出会类似：
+
+```text
+FUTU：互联网券商/财富管理代表公司
+市场：美国股票市场 / 纳斯达克全球市场
+行业：金融
+简介：富途是面向个人投资者的互联网券商和财富管理平台，波动常反映中概金融科技与交易活跃度预期。
+```
+
+板块维度也会扫描行业和主题 ETF，展示不寻常的行业波动。
+
+### Agent 与 Telegram 接入
+
+V1.0 已提供 Hermes/Agent 友好的接口：
+
+- 返回结构化 alerts
+- 返回稳定 dedupeKeys，方便去重
+- 返回可直接发送到 Telegram 的 `telegramText`
+- 支持按严重度过滤
+
+你可以让自己的 Agent 每小时调用一次。当市场出现高优先级事项时，再把消息发给你。
+
+## 快速开始
+
+需要 Node.js 20+。
 
 ```bash
+git clone https://github.com/zyzzyvar/MktMood.git
+cd MktMood
 npm install
 npm run dev
 ```
 
-打开 `http://localhost:3000`。
+打开：
 
-默认监听 `HOST=0.0.0.0`、`PORT=3000`，也就是接受来自所有网卡的访问。如果部署在局域网或公网机器上，`.env` 中保持：
+```text
+http://localhost:3000
+```
+
+默认监听：
 
 ```bash
 HOST=0.0.0.0
 PORT=3000
 ```
 
-PM2 启动或重启后可以用下面命令确认端口确实由 MktMood 监听：
+如果你只在本机使用，可以保持默认。若要给局域网、公网或 Agent 访问，请确认防火墙、路由器端口转发或反向代理已放行 `3000/tcp`。
+
+## 环境变量
+
+复制 `.env.example` 为 `.env`，按需填写。
 
 ```bash
-pm2 restart mktmood --update-env
-lsof -nP -iTCP:3000 -sTCP:LISTEN
-curl "http://127.0.0.1:3000/api/health"
+HOST=0.0.0.0
+PORT=3000
+
+PGHOST=192.168.99.150
+PGPORT=5432
+PGDATABASE=stockdb
+PGUSER=mktmood_app
+PGPASSWORD=replace_me
+PGSCHEMA=mktmood
+PGSSL=false
 ```
 
-如果 `127.0.0.1` 可访问、外部地址不可访问，通常不是应用层限制，而是 macOS 防火墙、路由器端口转发、Nginx/反向代理或运营商入站策略需要放行 `3000/tcp`。
+PostgreSQL 不是强制依赖。没有数据库时，看板仍可运行；有数据库时，MktMood 会保存历史观察，用于识别突破、持续单方向变化、事件预测修正和异动记录。
 
-服务器更新建议统一使用仓库内的部署脚本：
+## Mac/服务器部署
+
+仓库内置 `deploy.sh`，建议后续统一用它更新服务。
+
+第一次部署：
+
+```bash
+cd /Users/zyzbot/MyProject
+git clone https://github.com/zyzzyvar/MktMood.git
+cd MktMood
+cp .env.example .env
+npm install
+chmod +x deploy.sh
+./deploy.sh
+```
+
+后续更新：
 
 ```bash
 cd /Users/zyzbot/MyProject/MktMood
-bash deploy.sh
+./deploy.sh
 ```
 
-脚本会拉取代码、安装依赖、做语法检查、重建 PM2 进程、清理占用 3000 端口的旧进程，并验证健康检查、宏观解释库、异动个股画像和 Hermes 监控接口。
+脚本会做这些事：
 
-## Agent API
+- `git pull --ff-only`
+- 安装依赖
+- 检查 JS 语法
+- 删除旧 PM2 进程
+- 清理占用 3000 端口的旧进程
+- 用 PM2 重新启动
+- 验证端口归属
+- 验证前端、健康检查、宏观解释库、异动画像和 Hermes 接口
 
-- `GET /api/snapshot`：完整市场快照、指标、维度、框架解读。
-- `GET /api/frameworks`：只取框架和维度。
-- `GET /api/events`：未来 7 天关键宏观数据和行业龙头财报提醒。
-- `GET /api/agent/context?framework=liquidity-risk`：给 Agent 使用的紧凑上下文。
+常用检查：
 
-当前版本使用 Yahoo Finance 图表接口获取近实时行情，并尝试从 FRED 获取宏观序列。若某个公开数据源超时，接口会保留该指标并标记 `status: unavailable`。
+```bash
+pm2 status mktmood
+pm2 logs mktmood --lines 100
+curl "http://127.0.0.1:3000/api/health"
+```
 
-## 指标事件信号
+## API
 
-每个指标会输出 `signals`：
+### Market Snapshot
 
-- `breakout`：最新一次变化显著超过该指标的固定阈值和近期常态波动，用来捕捉突然跳高/跳低。
-- `persistence`：最近窗口内 80% 以上有效变化同向，且净变化也达到该指标阈值，用来捕捉连续单方向变化。
+```http
+GET /api/snapshot
+```
 
-不同指标使用不同参数。例如 VIX、比特币、原油使用更宽的百分比阈值；美债收益率、CPI、失业率使用百分点阈值；非农使用千人级绝对变化；Fear & Greed 使用指数点数。
+返回完整市场快照，包括指标、信号、框架解读、事件雷达、异动雷达和数据库洞察。
 
-## 事件雷达
+### Frameworks
 
-未来 7 天内的关键发布会进入 `upcomingEvents`：
+```http
+GET /api/frameworks
+```
 
-- 美国宏观数据：从经济日历提取发布时间、前值、市场共识和预测，重点关注就业、通胀、GDP、消费、PMI/ISM、FOMC 等。
-- 行业龙头财报：按行业维护观察名单，例如 AI/半导体、云、广告、消费、金融、能源、医疗、中国互联网等；使用财报日历里的 EPS 共识和分析师数量。
-- 重点事件也会进入 Agent 上下文，方便后续交易 Agent 做“发布前提醒”和“发布后复盘”。
+只返回分析框架和维度，适合轻量展示。
 
-## PostgreSQL 落库
+### Events
 
-应用会读取 `.env` 中的 PostgreSQL 配置，并在 `mktmood` schema 下自动建表。当前写入内容包括：
+```http
+GET /api/events
+GET /api/events/revisions
+```
+
+返回未来 7 天宏观数据和财报事件，以及市场预测值的修正记录。
+
+### Anomalies
+
+```http
+GET /api/anomalies
+```
+
+返回全市场个股异动、传统龙头异动和行业/板块异动。
+
+### History And Signals
+
+```http
+GET /api/history/indicators/:id
+GET /api/history/events/:key
+GET /api/signals
+```
+
+返回数据库中的历史指标、事件观察和信号记录。
+
+### Agent Context
+
+```http
+GET /api/agent/context?framework=liquidity-risk
+```
+
+返回适合 Agent 消化的紧凑上下文。
+
+### Hermes Monitor
+
+```http
+GET /api/hermes/monitor?minSeverity=high&limit=10
+```
+
+返回字段包括：
+
+- `shouldNotify`：是否需要提醒。
+- `alerts`：结构化告警列表。
+- `dedupeKeys`：去重键。
+- `telegramText`：可直接发送到 Telegram 的文本。
+- `nextSuggestedCheckMinutes`：建议下次检查间隔。
+
+如果希望更敏感：
+
+```bash
+curl "http://127.0.0.1:3000/api/hermes/monitor?minSeverity=medium&limit=10"
+```
+
+推荐 Agent 逻辑：
+
+1. 每小时请求 Hermes Monitor。
+2. 如果 `shouldNotify=false`，不发送消息。
+3. 如果 `shouldNotify=true`，用 `dedupeKeys` 过滤已发送事项。
+4. 仍有新事项时，发送 `telegramText` 或按 `alerts` 自己组装。
+5. 保存 dedupe key，设置 1-3 天过期。
+
+## 数据落库
+
+启用 PostgreSQL 后，MktMood 会在 `mktmood` schema 下自动建表和升级字段。
+
+核心表：
 
 - `mktmood.ingestion_runs`：每次采集批次和综合快照。
-- `mktmood.indicator_observations`：每次刷新看到的指标值、得分和解读。
-- `mktmood.indicator_history_points`：指标历史点位，按 `indicator_id + point_date` 去重更新。
+- `mktmood.indicator_observations`：每次刷新看到的指标值、得分和解释。
+- `mktmood.indicator_history_points`：指标历史点位。
 - `mktmood.indicator_signals`：突破、持续单方向变化等信号。
-- `mktmood.event_observations`：宏观数据和财报事件的每次观察值，用于追踪预测修正。
+- `mktmood.event_observations`：宏观和财报事件观察，用于追踪预测修正。
+- `mktmood.equity_anomaly_observations`：个股异动记录。
+- `mktmood.sector_move_observations`：行业和板块异动记录。
 
-新增历史 API：
+数据库带来的价值不是“存一下而已”，而是让看板拥有记忆：
 
-- `GET /api/history/indicators/:id`
-- `GET /api/history/events/:key`
-- `GET /api/signals`
-- `GET /api/events/revisions`
-- `GET /api/anomalies`
-- `GET /api/hermes/monitor`
+- 哪些指标不是一天跳动，而是连续几天单方向变化。
+- 哪些经济数据的市场预期在发布前被上修或下修。
+- 哪些行业或个股的异常波动值得复盘。
 
-刷新流程会先读取数据库中已有 observation，再把“历史观察 + 本次当前值”一起用于判断：
+## 数据源
 
-- 指标信号：数据库 observation history 优先，用于识别我们自己持续观察到的突破和单向持续变化；外部数据源返回的历史序列作为补充。
-- 事件修正：同一个 `event_key` 的本次 consensus/forecast/EPS forecast 会与上一次落库观察比较，用于识别发布前预测上修或下修。
-- Agent 上下文：`databaseInsights.indicatorSignals` 和 `databaseInsights.eventRevisions` 会直接返回给 Agent。
+V1.0 使用公开数据源组合：
 
-## Hermes 监控接入
+- Yahoo Finance：行情、图表、个股异动、行业 ETF。
+- FRED：宏观时间序列。
+- CNN Fear & Greed：风险偏好。
+- Trading Economics：经济日历。
+- Nasdaq：财报日历和 EPS 共识。
 
-Hermes 可以每小时调用：
+公开数据源偶尔会超时或变更页面结构。MktMood 会尽量降级处理，保留可用部分，并在接口中标记 source status。
 
-```bash
-curl "http://127.0.0.1:3000/api/hermes/monitor?minSeverity=high"
-```
+## 设计原则
 
-返回字段：
+- 先看全市场，再识别重点，不要求用户维护固定名单。
+- 每个指标都要能解释“是什么、为什么重要、接下来该关注什么”。
+- 标准解释优先，暂不依赖 LLM，避免成本和不可控输出。
+- 面向人阅读，也面向 Agent 调用。
+- 做交易辅助，不替代仓位纪律、估值判断和基本面研究。
 
-- `shouldNotify`：是否有达到阈值的特别事项。
-- `alerts`：结构化告警列表，包含类型、严重度、解释、关注方向。
-- `dedupeKeys`：稳定去重键，Hermes 应保存已发送 key，避免重复 Telegram。
-- `telegramText`：可直接发送到 Telegram 的纯文本摘要。
+## 免责声明
 
-推荐逻辑：
+MktMood 只提供市场信息整理、指标解释和风险线索，不构成投资建议。任何交易决策都应结合你的资金计划、风险承受能力、持仓结构和独立研究。
 
-1. 每小时请求 `/api/hermes/monitor?minSeverity=high`。
-2. 若 `shouldNotify=true`，过滤掉 Hermes 已发送过的 `dedupeKeys`。
-3. 仍有新 key 时，发送 `telegramText` 或按 `alerts` 自己组装消息。
-4. 保存新 key，设置 1-3 天过期。
+## 版本
 
-如果希望更敏感，可改成：
+当前稳定版：`v1.0`
 
-```bash
-curl "http://127.0.0.1:3000/api/hermes/monitor?minSeverity=medium"
-```
-
-## 全市场异动雷达
-
-看板会从全市场异动榜扫描显著上涨、显著下跌和高成交个股，再结合历史波动与成交量判断异常程度：
-
-- 个股异动：识别单日大涨/大跌、相对自身常态波动倍数、成交量倍数。
-- 龙头识别：不是只监控固定 watchlist，而是在扫出的异动个股里再识别传统行业龙头、超大市值龙头和大型行业代表。
-- 板块异动：扫描行业和主题 ETF，展示异常上涨/下跌的行业板块。
-- 落库：`mktmood.equity_anomaly_observations` 和 `mktmood.sector_move_observations` 会保存每轮扫描结果。
+这一版已经具备完整看板、数据库记忆、宏观/财报事件雷达、全市场异动雷达、Hermes/Agent 接口和服务器部署脚本。欢迎 fork、部署、改造，也欢迎把它接入你自己的交易助手。
