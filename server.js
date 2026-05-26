@@ -956,7 +956,11 @@ async function enrichEquityAnomaly(quote) {
   const exchangeLabel = normalizeExchangeName(quote.fullExchangeName || quote.exchange || "");
   const sectorLabel = inferSectorLabel(symbol, name, quote.industry || "", quote.sector || "");
   const industryLabel = inferIndustryLabel(symbol, name, quote.industry || "", quote.sector || "", sectorLabel);
-  const companyBrief = buildCompanyBrief(symbol, name, classification, marketLabel, sectorLabel, industryLabel);
+  const profileClassification = {
+    ...classification,
+    label: buildEquityClassificationLabel(classification, sectorLabel, industryLabel)
+  };
+  const companyBrief = buildCompanyBrief(symbol, name, profileClassification, marketLabel, sectorLabel, industryLabel);
   const severity = absChange >= 10 || abnormalMoveRatio >= 3 || (classification.isTraditionalLeader && absChange >= 7)
     ? "high"
     : "medium";
@@ -976,12 +980,12 @@ async function enrichEquityAnomaly(quote) {
     volume,
     volumeRatio: round(volumeRatio, 2),
     abnormalMoveRatio: round(abnormalMoveRatio, 2),
-    classification: classification.label,
+    classification: profileClassification.label,
     isTraditionalLeader: classification.isTraditionalLeader,
     sectorLabel,
     industryLabel,
     companyBrief,
-    explanation: buildEquityAnomalyExplanation(symbol, changePct, classification, marketLabel, sectorLabel, industryLabel, abnormalMoveRatio, volumeRatio),
+    explanation: buildEquityAnomalyExplanation(symbol, changePct, profileClassification, marketLabel, sectorLabel, industryLabel, abnormalMoveRatio, volumeRatio),
     source: "Yahoo Finance screener"
   };
 }
@@ -1017,6 +1021,30 @@ function classifyEquityAnomaly(symbol, name, marketCap) {
     return { label: "行业代表公司", isTraditionalLeader: false };
   }
   return { label: "高波动个股", isTraditionalLeader: false };
+}
+
+function buildEquityClassificationLabel(classification, sectorLabel, industryLabel) {
+  if (classification.isTraditionalLeader) return classification.label;
+  const specific = pickSpecificEquityLabel(sectorLabel, industryLabel);
+  if (!specific) return classification.label;
+  if (classification.label === "超大市值龙头") return `${specific}超大市值龙头`;
+  if (classification.label === "大型行业代表") return `${specific}大型代表`;
+  if (classification.label === "行业代表公司") return `${specific}代表公司`;
+  if (classification.label === "高波动个股") return `${specific}高波动股`;
+  return `${specific}${classification.label}`;
+}
+
+function pickSpecificEquityLabel(sectorLabel, industryLabel) {
+  const industry = cleanEquityProfileLabel(industryLabel);
+  const sector = cleanEquityProfileLabel(sectorLabel);
+  if (industry && industry !== sector) return industry;
+  return sector;
+}
+
+function cleanEquityProfileLabel(label) {
+  const text = String(label || "").trim();
+  if (!text || text === "未分类" || text === "行业待确认" || text === "股票市场") return "";
+  return text;
 }
 
 function buildEquityMarketLabel(quote) {
