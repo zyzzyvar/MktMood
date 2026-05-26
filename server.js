@@ -16,6 +16,7 @@ const { findMacroEventPlaybook, genericMacroEventPlaybook } = require("./playboo
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || "0.0.0.0";
 const CACHE_MS = 60 * 1000;
 const YAHOO_TIMEOUT_MS = 9000;
 const FRED_TIMEOUT_MS = 5500;
@@ -624,8 +625,10 @@ app.get("/{*splat}", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-app.listen(PORT, () => {
-  console.log(`Market atmosphere dashboard running at http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+  const publicHost = HOST === "0.0.0.0" || HOST === "::" ? "0.0.0.0" : HOST;
+  console.log(`Market atmosphere dashboard running at http://${publicHost}:${PORT}`);
+  console.log(`Local access: http://localhost:${PORT}`);
   initDb().then((status) => {
     if (status.ok) console.log(`PostgreSQL storage ready in schema ${status.schema}`);
     else if (status.enabled) console.warn(`PostgreSQL storage unavailable: ${status.lastError}`);

@@ -22,6 +22,23 @@ npm run dev
 
 打开 `http://localhost:3000`。
 
+默认监听 `HOST=0.0.0.0`、`PORT=3000`，也就是接受来自所有网卡的访问。如果部署在局域网或公网机器上，`.env` 中保持：
+
+```bash
+HOST=0.0.0.0
+PORT=3000
+```
+
+PM2 启动或重启后可以用下面命令确认端口确实由 MktMood 监听：
+
+```bash
+pm2 restart mktmood --update-env
+lsof -nP -iTCP:3000 -sTCP:LISTEN
+curl "http://127.0.0.1:3000/api/health"
+```
+
+如果 `127.0.0.1` 可访问、外部地址不可访问，通常不是应用层限制，而是 macOS 防火墙、路由器端口转发、Nginx/反向代理或运营商入站策略需要放行 `3000/tcp`。
+
 ## Agent API
 
 - `GET /api/snapshot`：完整市场快照、指标、维度、框架解读。
