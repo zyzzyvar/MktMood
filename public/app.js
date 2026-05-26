@@ -162,9 +162,12 @@ function renderEquityAnomaly(item) {
           <strong>${escapeHtml(item.name)}</strong>
           <span class="pill ${item.isTraditionalLeader ? "pressure" : "neutral"}">${escapeHtml(item.classification)}</span>
         </div>
+        <p class="company-brief">${escapeHtml(item.companyBrief || "暂无公司简介。")}</p>
         <p>${escapeHtml(item.explanation)}</p>
         <div class="event-meta">
+          <span>${escapeHtml(item.marketLabel || "股票市场")}</span>
           <span>${escapeHtml(item.sectorLabel || "未分类")}</span>
+          <span>${escapeHtml(item.industryLabel || "行业待确认")}</span>
           <span>波动倍数：${formatNumber(item.abnormalMoveRatio)}</span>
           <span>量比：${formatNumber(item.volumeRatio)}</span>
         </div>

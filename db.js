@@ -206,16 +206,26 @@ async function createSchema(activePool) {
       severity text,
       change_pct numeric,
       market_cap numeric,
+      market_label text,
+      exchange_label text,
+      currency text,
       volume numeric,
       volume_ratio numeric,
       abnormal_move_ratio numeric,
       classification text,
       sector_label text,
+      industry_label text,
+      company_brief text,
       explanation text,
       raw jsonb NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     )
   `);
+  await activePool.query(`ALTER TABLE ${qn("equity_anomaly_observations")} ADD COLUMN IF NOT EXISTS market_label text`);
+  await activePool.query(`ALTER TABLE ${qn("equity_anomaly_observations")} ADD COLUMN IF NOT EXISTS exchange_label text`);
+  await activePool.query(`ALTER TABLE ${qn("equity_anomaly_observations")} ADD COLUMN IF NOT EXISTS currency text`);
+  await activePool.query(`ALTER TABLE ${qn("equity_anomaly_observations")} ADD COLUMN IF NOT EXISTS industry_label text`);
+  await activePool.query(`ALTER TABLE ${qn("equity_anomaly_observations")} ADD COLUMN IF NOT EXISTS company_brief text`);
   await activePool.query(`
     CREATE INDEX IF NOT EXISTS equity_anomaly_lookup_idx
       ON ${qn("equity_anomaly_observations")} (observed_at DESC, symbol)
@@ -299,8 +309,9 @@ async function insertEquityAnomaly(client, runId, observedAt, anomaly) {
   await client.query(
     `INSERT INTO ${qn("equity_anomaly_observations")}
       (run_id, observed_at, symbol, name, anomaly_type, direction, severity, change_pct, market_cap, volume,
-       volume_ratio, abnormal_move_ratio, classification, sector_label, explanation, raw)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)`,
+       market_label, exchange_label, currency, volume_ratio, abnormal_move_ratio, classification, sector_label,
+       industry_label, company_brief, explanation, raw)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb)`,
     [
       runId,
       observedAt,
@@ -312,10 +323,15 @@ async function insertEquityAnomaly(client, runId, observedAt, anomaly) {
       toNumber(anomaly.changePct),
       toNumber(anomaly.marketCap),
       toNumber(anomaly.volume),
+      anomaly.marketLabel,
+      anomaly.exchangeLabel,
+      anomaly.currency,
       toNumber(anomaly.volumeRatio),
       toNumber(anomaly.abnormalMoveRatio),
       anomaly.classification,
       anomaly.sectorLabel,
+      anomaly.industryLabel,
+      anomaly.companyBrief,
       anomaly.explanation,
       JSON.stringify(anomaly)
     ]

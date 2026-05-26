@@ -457,6 +457,7 @@ h3 {
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);
   gap: 12px;
+  min-width: 0;
   padding: 12px;
   border: 1px solid var(--line);
   border-left-width: 5px;
@@ -496,11 +497,17 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 6px;
 }
 
 .event-title strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.event-body {
   min-width: 0;
 }
 
@@ -509,6 +516,11 @@ h3 {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.48;
+  overflow-wrap: anywhere;
+}
+
+.event-body .company-brief {
+  color: var(--text);
 }
 
 .event-interpretation {
@@ -544,6 +556,11 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.event-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .event-empty {

@@ -479,6 +479,16 @@ const traditionalLeaderTags = {
   CSCO: "网络设备传统龙头"
 };
 
+const equityProfileOverrides = {
+  FUTU: { sectorLabel: "金融", industryLabel: "互联网券商/财富管理", brief: "富途是面向个人投资者的互联网券商和财富管理平台，波动常反映中概金融科技与交易活跃度预期。" },
+  NVTS: { sectorLabel: "半导体/AI硬件", industryLabel: "功率半导体", brief: "Navitas 是氮化镓和碳化硅功率芯片公司，常被用来观察AI电源、快充和电气化链条情绪。" },
+  RGTI: { sectorLabel: "前沿科技", industryLabel: "量子计算", brief: "Rigetti 是量子计算硬件和云服务公司，股价更容易受前沿科技题材和风险偏好驱动。" },
+  BB: { sectorLabel: "企业软件", industryLabel: "网络安全/车载软件", brief: "BlackBerry 已转型为网络安全和车载软件公司，异动通常需要关注软件业务、授权收入和事件催化。" },
+  DELL: { sectorLabel: "企业硬件/PC", industryLabel: "服务器/存储/PC", brief: "Dell 是企业服务器、存储和PC硬件龙头，异动常指向AI服务器需求、企业IT预算和硬件利润率。" },
+  HPQ: { sectorLabel: "企业硬件/PC", industryLabel: "PC/打印机", brief: "HP 是PC与打印机硬件公司，波动主要对应终端更新周期、企业采购和耗材利润。" },
+  F: { sectorLabel: "汽车", industryLabel: "整车制造", brief: "Ford 是美国传统汽车龙头，异动通常关联销量、价格战、电动车投入和汽车信贷环境。" }
+};
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -932,6 +942,7 @@ async function fetchYahooScreener(scrId) {
 
 async function enrichEquityAnomaly(quote) {
   const symbol = String(quote.symbol || "").toUpperCase();
+  const name = quote.longName || quote.shortName || symbol;
   const changePct = Number(quote.regularMarketChangePercent) || 0;
   const chart = await fetchYahooChart(symbol).catch(() => null);
   const stats = chart ? computeChartStats(chart) : {};
@@ -940,8 +951,12 @@ async function enrichEquityAnomaly(quote) {
   const volume = Number(quote.regularMarketVolume) || stats.latestVolume || null;
   const volumeRatio = stats.avgVolume ? volume / stats.avgVolume : null;
   const marketCap = Number(quote.marketCap) || null;
-  const classification = classifyEquityAnomaly(symbol, quote.shortName || quote.longName || symbol, marketCap);
-  const sectorLabel = inferSectorLabel(symbol, quote.shortName || "");
+  const classification = classifyEquityAnomaly(symbol, name, marketCap);
+  const marketLabel = buildEquityMarketLabel(quote);
+  const exchangeLabel = normalizeExchangeName(quote.fullExchangeName || quote.exchange || "");
+  const sectorLabel = inferSectorLabel(symbol, name, quote.industry || "", quote.sector || "");
+  const industryLabel = inferIndustryLabel(symbol, name, quote.industry || "", quote.sector || "", sectorLabel);
+  const companyBrief = buildCompanyBrief(symbol, name, classification, marketLabel, sectorLabel, industryLabel);
   const severity = absChange >= 10 || abnormalMoveRatio >= 3 || (classification.isTraditionalLeader && absChange >= 7)
     ? "high"
     : "medium";
@@ -949,19 +964,24 @@ async function enrichEquityAnomaly(quote) {
     type: "equity_anomaly",
     status: "ok",
     symbol,
-    name: quote.shortName || quote.longName || symbol,
+    name,
     anomalyType: changePct < 0 ? "sharp_drop" : "sharp_rise",
     direction: changePct < 0 ? "down" : "up",
     severity,
     changePct: round(changePct, 2),
     marketCap,
+    marketLabel,
+    exchangeLabel,
+    currency: quote.currency || null,
     volume,
     volumeRatio: round(volumeRatio, 2),
     abnormalMoveRatio: round(abnormalMoveRatio, 2),
     classification: classification.label,
     isTraditionalLeader: classification.isTraditionalLeader,
     sectorLabel,
-    explanation: buildEquityAnomalyExplanation(symbol, changePct, classification, sectorLabel, abnormalMoveRatio, volumeRatio),
+    industryLabel,
+    companyBrief,
+    explanation: buildEquityAnomalyExplanation(symbol, changePct, classification, marketLabel, sectorLabel, industryLabel, abnormalMoveRatio, volumeRatio),
     source: "Yahoo Finance screener"
   };
 }
@@ -999,12 +1019,54 @@ function classifyEquityAnomaly(symbol, name, marketCap) {
   return { label: "高波动个股", isTraditionalLeader: false };
 }
 
-function inferSectorLabel(symbol, name) {
-  const text = `${symbol} ${name}`.toLowerCase();
+function buildEquityMarketLabel(quote) {
+  const market = normalizeMarketName(quote.market || "");
+  const exchange = normalizeExchangeName(quote.fullExchangeName || quote.exchange || "");
+  if (market && exchange) return `${market} / ${exchange}`;
+  return market || exchange || "股票市场";
+}
+
+function normalizeMarketName(market) {
+  const text = String(market || "").toLowerCase();
+  if (text === "us_market") return "美国股票市场";
+  if (text === "hk_market") return "香港股票市场";
+  if (text === "gb_market") return "英国股票市场";
+  if (text === "ca_market") return "加拿大股票市场";
+  if (text.includes("market")) return text.replace(/_/g, " ");
+  return "";
+}
+
+function normalizeExchangeName(exchange) {
+  const text = String(exchange || "").trim();
+  const key = text.toUpperCase();
+  const map = {
+    NYQ: "纽约证券交易所",
+    NYSE: "纽约证券交易所",
+    NMS: "纳斯达克精选市场",
+    NGS: "纳斯达克精选市场",
+    NGM: "纳斯达克全球市场",
+    "NASDAQGM": "纳斯达克全球市场",
+    NCM: "纳斯达克资本市场",
+    "NASDAQCM": "纳斯达克资本市场",
+    "NASDAQGS": "纳斯达克精选市场",
+    ASE: "NYSE American",
+    PCX: "NYSE Arca",
+    PNK: "美国粉单市场",
+    OTC: "美国OTC市场"
+  };
+  return map[key] || text;
+}
+
+function inferSectorLabel(symbol, name, industry = "", sector = "") {
+  if (equityProfileOverrides[symbol]?.sectorLabel) return equityProfileOverrides[symbol].sectorLabel;
+  const sourceSector = String(sector || "").trim();
+  if (sourceSector) return translateSector(sourceSector);
+  const text = `${symbol} ${name} ${industry}`.toLowerCase();
   if (/semiconductor|chip|nvidia|intel|amd|marvell|cerebras|navitas/.test(text)) return "半导体/AI硬件";
   if (/dell|hp inc|hewlett|pc|hardware/.test(text)) return "企业硬件/PC";
-  if (/software|oracle|salesforce|snowflake|zscaler/.test(text)) return "企业软件";
-  if (/bank|financial|capital|holdings/.test(text)) return "金融";
+  if (/quantum|rigetti/.test(text)) return "前沿科技";
+  if (/software|oracle|salesforce|snowflake|zscaler|blackberry|cybersecurity/.test(text)) return "企业软件";
+  if (/bank|financial|capital|holdings|broker|wealth|futu/.test(text)) return "金融";
   if (/energy|oil|solar|fervo/.test(text)) return "能源";
   if (/coca|pepsi|food|retail|costco|walmart|mcdonald/.test(text)) return "消费";
   if (/pharma|bio|medical|health/.test(text)) return "医疗";
@@ -1012,7 +1074,74 @@ function inferSectorLabel(symbol, name) {
   return "未分类";
 }
 
-function buildEquityAnomalyExplanation(symbol, changePct, classification, sectorLabel, abnormalMoveRatio, volumeRatio) {
+function inferIndustryLabel(symbol, name, industry = "", sector = "", sectorLabel = "未分类") {
+  if (equityProfileOverrides[symbol]?.industryLabel) return equityProfileOverrides[symbol].industryLabel;
+  const sourceIndustry = String(industry || "").trim();
+  if (sourceIndustry) return translateIndustry(sourceIndustry);
+  const text = `${symbol} ${name} ${sector}`.toLowerCase();
+  if (/navitas|power|gan|silicon carbide/.test(text)) return "功率半导体";
+  if (/semiconductor|chip/.test(text)) return "半导体";
+  if (/quantum|rigetti/.test(text)) return "量子计算";
+  if (/blackberry|cyber/.test(text)) return "网络安全/车载软件";
+  if (/futu|broker|wealth/.test(text)) return "互联网券商/财富管理";
+  if (/bank/.test(text)) return "银行";
+  if (/financial|capital|holdings/.test(text)) return "金融服务";
+  if (/software|salesforce|oracle|snowflake/.test(text)) return "软件/SaaS";
+  if (/biotech|bio/.test(text)) return "生物科技";
+  if (/pharma/.test(text)) return "制药";
+  if (/medical|health/.test(text)) return "医疗服务/设备";
+  if (/retail|walmart|costco/.test(text)) return "零售";
+  if (/energy|oil/.test(text)) return "油气能源";
+  if (/solar/.test(text)) return "清洁能源";
+  if (/auto|motor|ford|tesla|gm/.test(text)) return "整车制造";
+  return sectorLabel === "未分类" ? "行业待确认" : sectorLabel;
+}
+
+function translateSector(sector) {
+  const map = {
+    Technology: "科技",
+    "Financial Services": "金融",
+    Healthcare: "医疗",
+    "Consumer Cyclical": "可选消费",
+    "Consumer Defensive": "必选消费",
+    Industrials: "工业",
+    Energy: "能源",
+    "Communication Services": "通信服务",
+    "Basic Materials": "基础材料",
+    Utilities: "公用事业",
+    "Real Estate": "房地产"
+  };
+  return map[sector] || sector;
+}
+
+function translateIndustry(industry) {
+  const map = {
+    "Semiconductors": "半导体",
+    "Software - Application": "应用软件",
+    "Software - Infrastructure": "基础软件",
+    "Capital Markets": "资本市场/券商",
+    "Banks - Diversified": "综合银行",
+    "Auto Manufacturers": "整车制造",
+    "Computer Hardware": "计算机硬件",
+    "Consumer Electronics": "消费电子",
+    "Biotechnology": "生物科技",
+    "Drug Manufacturers - General": "综合制药"
+  };
+  return map[industry] || industry;
+}
+
+function buildCompanyBrief(symbol, name, classification, marketLabel, sectorLabel, industryLabel) {
+  if (equityProfileOverrides[symbol]?.brief) return equityProfileOverrides[symbol].brief;
+  if (classification.isTraditionalLeader) {
+    return `${name} 是${classification.label}，在${marketLabel}交易，主要观察${industryLabel || sectorLabel}景气度、盈利指引和估值重定价。`;
+  }
+  if (sectorLabel !== "未分类") {
+    return `${name} 是${marketLabel}中的${industryLabel || sectorLabel}相关公司，适合作为${sectorLabel}风险偏好和事件催化的观察样本。`;
+  }
+  return `${name} 是${marketLabel}中的高波动个股，行业信息暂不充分，优先作为资金异动线索而非直接交易结论。`;
+}
+
+function buildEquityAnomalyExplanation(symbol, changePct, classification, marketLabel, sectorLabel, industryLabel, abnormalMoveRatio, volumeRatio) {
   const move = changePct < 0 ? "大跌" : "大涨";
   const leader = classification.isTraditionalLeader
     ? (changePct < 0
@@ -1021,7 +1150,7 @@ function buildEquityAnomalyExplanation(symbol, changePct, classification, sector
     : "";
   const vol = abnormalMoveRatio ? `，约为自身常态日波动的 ${round(abnormalMoveRatio, 1)} 倍` : "";
   const volume = volumeRatio ? `，成交量约为近期均量 ${round(volumeRatio, 1)} 倍` : "";
-  return `${symbol} 单日${move} ${Math.abs(round(changePct, 2))}%${vol}${volume}，归类为${classification.label}/${sectorLabel}${leader}。`;
+  return `${symbol} 单日${move} ${Math.abs(round(changePct, 2))}%${vol}${volume}，属于${marketLabel}，归类为${classification.label}/${sectorLabel}/${industryLabel}${leader}。`;
 }
 
 async function fetchSectorMoves() {
