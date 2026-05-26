@@ -118,10 +118,10 @@ PORT=3000
 HOST=0.0.0.0
 PORT=3000
 
-PGHOST=192.168.99.150
+PGHOST=localhost
 PGPORT=5432
-PGDATABASE=stockdb
-PGUSER=mktmood_app
+PGDATABASE=mktmood
+PGUSER=mktmood_user
 PGPASSWORD=replace_me
 PGSCHEMA=mktmood
 PGSSL=false
@@ -136,7 +136,6 @@ PostgreSQL 不是强制依赖。没有数据库时，看板仍可运行；有数
 第一次部署：
 
 ```bash
-cd /Users/zyzbot/MyProject
 git clone https://github.com/zyzzyvar/MktMood.git
 cd MktMood
 cp .env.example .env
@@ -148,7 +147,7 @@ chmod +x deploy.sh
 后续更新：
 
 ```bash
-cd /Users/zyzbot/MyProject/MktMood
+cd /path/to/MktMood
 ./deploy.sh
 ```
 

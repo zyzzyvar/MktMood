@@ -2,7 +2,8 @@
 set -euo pipefail
 
 APP_NAME="${APP_NAME:-mktmood}"
-APP_DIR="${APP_DIR:-/Users/zyzbot/MyProject/MktMood}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="${APP_DIR:-$SCRIPT_DIR}"
 PORT="${PORT:-3000}"
 LOCAL_URL="http://127.0.0.1:${PORT}"
 
