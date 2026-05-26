@@ -558,6 +558,27 @@ app.get("/api/signals", async (req, res) => {
   });
 });
 
+app.get("/api/hermes/monitor", async (req, res) => {
+  const snapshot = await getSnapshot();
+  const minSeverity = String(req.query.minSeverity || "high");
+  const limit = Math.min(Number(req.query.limit || 12), 30);
+  const alerts = buildHermesAlerts(snapshot)
+    .filter((alert) => severityRank(alert.severity) <= severityRank(minSeverity))
+    .slice(0, limit);
+  res.json({
+    service: "MktMood",
+    updatedAt: snapshot.updatedAt,
+    shouldNotify: alerts.length > 0,
+    alertCount: alerts.length,
+    minSeverity,
+    dedupeKeys: alerts.map((alert) => alert.dedupeKey),
+    telegramText: buildHermesTelegramText(snapshot, alerts),
+    alerts,
+    nextSuggestedCheckMinutes: 60,
+    storage: snapshot.storage
+  });
+});
+
 app.get("/api/agent/context", async (req, res) => {
   const snapshot = await getSnapshot();
   const frameworkId = String(req.query.framework || "liquidity-risk");
@@ -1059,6 +1080,146 @@ async function mapWithConcurrency(items, concurrency, worker) {
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
   return results;
+}
+
+function buildHermesAlerts(snapshot) {
+  const alerts = [];
+  const day = dateOnly(new Date(snapshot.updatedAt));
+
+  if (snapshot.storage?.enabled && !snapshot.storage?.ok) {
+    alerts.push({
+      type: "system",
+      severity: "medium",
+      title: "MktMood 数据库写入异常",
+      detail: snapshot.storage.lastError || "storage.ok=false",
+      actionHint: "检查 PostgreSQL 连接、pg_hba.conf、PGSSL 和 PM2 环境变量。",
+      dedupeKey: `system:storage:${day}`
+    });
+  }
+
+  for (const signal of snapshot.indicators.flatMap((indicator) => (
+    (indicator.signals || []).map((item) => ({ indicator, signal: item }))
+  ))) {
+    const severity = signal.signal.severity || "medium";
+    alerts.push({
+      type: "indicator_signal",
+      severity,
+      title: `${signal.indicator.name}${signal.signal.label}`,
+      detail: signal.signal.detail,
+      actionHint: signal.signal.direction === "up"
+        ? "确认该指标上行对风险资产是支撑还是压力，再观察美元、利率、VIX 是否共振。"
+        : "确认该指标下行是否代表风险释放、增长转弱或避险降温。",
+      dedupeKey: `indicator:${signal.indicator.id}:${signal.signal.type}:${signal.signal.direction}:${signal.signal.value}:${day}`,
+      payload: {
+        indicatorId: signal.indicator.id,
+        category: signal.indicator.category,
+        source: signal.signal.source || "market-history"
+      }
+    });
+  }
+
+  for (const revision of snapshot.databaseInsights?.eventRevisions || []) {
+    alerts.push({
+      type: "event_revision",
+      severity: revision.severity || "medium",
+      title: `${revision.title}${revision.fieldLabel}${revision.direction === "up" ? "上修" : revision.direction === "down" ? "下修" : "变化"}`,
+      detail: revision.detail,
+      actionHint: "预测修正会改变发布前市场预期，关注相关资产是否已提前反应。",
+      dedupeKey: `event-revision:${revision.eventKey}:${revision.field}:${revision.before}->${revision.after}`,
+      payload: revision
+    });
+  }
+
+  for (const event of snapshot.upcomingEvents?.highAttention || []) {
+    if (event.status !== "ok" || event.daysUntil > 1) continue;
+    const key = eventKey(event);
+    alerts.push({
+      type: "event_due",
+      severity: event.priority === "high" ? "high" : "medium",
+      title: `${event.title} 即将发布`,
+      detail: event.watchText,
+      actionHint: event.interpretation?.actionHint || event.why || "发布后看实际值相对共识与前值，再看跨资产确认。",
+      dedupeKey: `event-due:${key}:T-${event.daysUntil}`,
+      payload: {
+        eventKey: key,
+        expectation: event.expectation,
+        previous: event.previous || event.lastYearEPS
+      }
+    });
+  }
+
+  for (const anomaly of snapshot.anomalyRadar?.legacyLeaderAlerts || []) {
+    alerts.push({
+      type: "leader_anomaly",
+      severity: anomaly.severity || "high",
+      title: `${anomaly.symbol} ${anomaly.direction === "down" ? "传统龙头大跌" : "传统龙头大涨"}`,
+      detail: anomaly.explanation,
+      actionHint: anomaly.direction === "down"
+        ? "先区分系统性错杀、行业冲击、财报/指引重定价和基本面恶化，再考虑分批响应。"
+        : "确认是否来自业绩/指引改善、行业需求改善或短线挤仓，避免追高。 ",
+      dedupeKey: `leader:${anomaly.symbol}:${anomaly.direction}:${anomaly.changePct}:${day}`,
+      payload: anomaly
+    });
+  }
+
+  for (const anomaly of snapshot.anomalyRadar?.equityAnomalies || []) {
+    if (anomaly.isTraditionalLeader || anomaly.severity !== "high" || Math.abs(Number(anomaly.changePct) || 0) < 12) continue;
+    alerts.push({
+      type: "equity_anomaly",
+      severity: "high",
+      title: `${anomaly.symbol} 显著${anomaly.direction === "down" ? "下跌" : "上涨"}`,
+      detail: anomaly.explanation,
+      actionHint: "如果不是龙头，优先作为市场情绪、题材或事件线索；不要直接等同于可交易机会。",
+      dedupeKey: `equity:${anomaly.symbol}:${anomaly.direction}:${anomaly.changePct}:${day}`,
+      payload: anomaly
+    });
+  }
+
+  for (const move of snapshot.anomalyRadar?.sectorMoves || []) {
+    if (move.severity !== "high") continue;
+    alerts.push({
+      type: "sector_move",
+      severity: "high",
+      title: `${move.name}板块异常${move.direction === "down" ? "下跌" : "上涨"}`,
+      detail: move.explanation,
+      actionHint: "板块共振比单只股票更重要，关注龙头股是否同步确认。",
+      dedupeKey: `sector:${move.symbol}:${move.direction}:${move.changePct}:${day}`,
+      payload: move
+    });
+  }
+
+  return alerts.sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
+}
+
+function buildHermesTelegramText(snapshot, alerts) {
+  if (!alerts.length) {
+    return `MktMood ${formatTelegramTime(snapshot.updatedAt)}\n暂无达到通知阈值的特别事项。\n市场状态：${snapshot.regime?.name || "未知"}，综合分 ${snapshot.marketScore}`;
+  }
+  const lines = [
+    `MktMood Alert ${formatTelegramTime(snapshot.updatedAt)}`,
+    `市场状态：${snapshot.regime?.name || "未知"}，综合分 ${snapshot.marketScore}`,
+    ""
+  ];
+  alerts.forEach((alert, index) => {
+    lines.push(`${index + 1}. [${String(alert.severity || "medium").toUpperCase()}] ${alert.title}`);
+    lines.push(`   ${alert.detail}`);
+    if (alert.actionHint) lines.push(`   关注：${alert.actionHint}`);
+  });
+  return lines.join("\n");
+}
+
+function formatTelegramTime(value) {
+  try {
+    return new Intl.DateTimeFormat("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(new Date(value));
+  } catch {
+    return String(value || "");
+  }
 }
 
 async function fetchUpcomingEvents() {

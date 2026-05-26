@@ -65,12 +65,41 @@ npm run dev
 - `GET /api/signals`
 - `GET /api/events/revisions`
 - `GET /api/anomalies`
+- `GET /api/hermes/monitor`
 
 刷新流程会先读取数据库中已有 observation，再把“历史观察 + 本次当前值”一起用于判断：
 
 - 指标信号：数据库 observation history 优先，用于识别我们自己持续观察到的突破和单向持续变化；外部数据源返回的历史序列作为补充。
 - 事件修正：同一个 `event_key` 的本次 consensus/forecast/EPS forecast 会与上一次落库观察比较，用于识别发布前预测上修或下修。
 - Agent 上下文：`databaseInsights.indicatorSignals` 和 `databaseInsights.eventRevisions` 会直接返回给 Agent。
+
+## Hermes 监控接入
+
+Hermes 可以每小时调用：
+
+```bash
+curl "http://127.0.0.1:3000/api/hermes/monitor?minSeverity=high"
+```
+
+返回字段：
+
+- `shouldNotify`：是否有达到阈值的特别事项。
+- `alerts`：结构化告警列表，包含类型、严重度、解释、关注方向。
+- `dedupeKeys`：稳定去重键，Hermes 应保存已发送 key，避免重复 Telegram。
+- `telegramText`：可直接发送到 Telegram 的纯文本摘要。
+
+推荐逻辑：
+
+1. 每小时请求 `/api/hermes/monitor?minSeverity=high`。
+2. 若 `shouldNotify=true`，过滤掉 Hermes 已发送过的 `dedupeKeys`。
+3. 仍有新 key 时，发送 `telegramText` 或按 `alerts` 自己组装消息。
+4. 保存新 key，设置 1-3 天过期。
+
+如果希望更敏感，可改成：
+
+```bash
+curl "http://127.0.0.1:3000/api/hermes/monitor?minSeverity=medium"
+```
 
 ## 全市场异动雷达
 
