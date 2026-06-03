@@ -19,11 +19,20 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const CACHE_MS = 60 * 1000;
 const YAHOO_TIMEOUT_MS = 9000;
-const FRED_TIMEOUT_MS = 5500;
+const FRED_TIMEOUT_MS = Number(process.env.FRED_TIMEOUT_MS || 12000);
+const CNN_TIMEOUT_MS = Number(process.env.CNN_TIMEOUT_MS || 12000);
 const EVENT_LOOKAHEAD_DAYS = 7;
 const YAHOO_BASE_URLS = (process.env.YAHOO_BASE_URLS || "https://query1.finance.yahoo.com,https://query2.finance.yahoo.com")
   .split(",")
   .map((value) => value.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
+const FRED_FALLBACK_BASE_URLS = (process.env.FRED_FALLBACK_BASE_URLS || "https://govspending.org/api/export/fred")
+  .split(",")
+  .map((value) => value.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
+const FRED_SOURCE_ORDER = (process.env.FRED_SOURCE_ORDER || "govspending,fred")
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
 
 let snapshotCache = null;
@@ -1706,11 +1715,7 @@ async function fetchRatioIndicators() {
 async function fetchSentimentIndicators() {
   try {
     const date = new Date().toISOString().slice(0, 10);
-    const url = `https://production.dataviz.cnn.io/index/fearandgreed/graphdata/${date}`;
-    const json = await fetchJson(url, FRED_TIMEOUT_MS, {
-      Accept: "application/json,text/plain,*/*",
-      Referer: "https://www.cnn.com/markets/fear-and-greed"
-    });
+    const json = await fetchCnnFearGreedJson(date);
     const current = Number(json.fear_and_greed?.score);
     if (!Number.isFinite(current)) throw new Error("CNN Fear & Greed score missing");
     const history = (json.fear_and_greed_historical?.data || [])
@@ -1759,6 +1764,27 @@ async function fetchSentimentIndicators() {
   }
 }
 
+async function fetchCnnFearGreedJson(date) {
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    Accept: "application/json,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    Origin: "https://www.cnn.com",
+    Referer: "https://www.cnn.com/markets/fear-and-greed"
+  };
+  const dates = [date, dateOnly(addDays(new Date(date), -1))];
+  const errors = [];
+  for (const item of dates) {
+    try {
+      const url = `https://production.dataviz.cnn.io/index/fearandgreed/graphdata/${item}`;
+      return await fetchJson(url, CNN_TIMEOUT_MS, headers);
+    } catch (error) {
+      errors.push(`${item}: ${error.message}`);
+    }
+  }
+  throw new Error(`CNN Fear & Greed unavailable: ${errors.join(" | ")}`);
+}
+
 async function fetchYahooIndicators() {
   const tasks = yahooIndicators.map(async (config) => {
     try {
@@ -1795,16 +1821,64 @@ async function fetchYahooJson(path) {
 async function fetchFredIndicators() {
   const tasks = fredIndicators.map(async (config) => {
     try {
-      const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(config.series)}`;
-      const text = await fetchText(url, FRED_TIMEOUT_MS);
-      const rows = parseFredCsv(text, config.series);
+      const { rows, source } = await fetchFredRows(config.series);
       if (rows.length < 2) throw new Error("Not enough FRED observations");
-      return buildFredIndicator(config, rows);
+      return buildFredIndicator(config, rows, source);
     } catch (error) {
       return unavailableIndicator(config, "FRED", error);
     }
   });
   return Promise.all(tasks);
+}
+
+async function fetchFredRows(series) {
+  const errors = [];
+  for (const source of FRED_SOURCE_ORDER) {
+    if (source === "govspending") {
+      for (const baseUrl of FRED_FALLBACK_BASE_URLS) {
+        try {
+          return await fetchGovspendingFredRows(baseUrl, series);
+        } catch (error) {
+          errors.push(`${baseUrl}: ${error.message}`);
+        }
+      }
+    }
+    if (source === "fred") {
+      try {
+        return await fetchDirectFredRows(series);
+      } catch (error) {
+        errors.push(`FRED direct: ${error.message}`);
+      }
+    }
+  }
+  throw new Error(`FRED series ${series} unavailable: ${errors.join(" | ")}`);
+}
+
+async function fetchDirectFredRows(series) {
+  const directUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(series)}`;
+  const text = await fetchText(directUrl, FRED_TIMEOUT_MS, {
+    Accept: "text/csv,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    Referer: `https://fred.stlouisfed.org/series/${encodeURIComponent(series)}`
+  });
+  return { rows: parseFredCsv(text, series), source: "FRED" };
+}
+
+async function fetchGovspendingFredRows(baseUrl, series) {
+  const json = await fetchJson(`${baseUrl}/${encodeURIComponent(series)}.json`, FRED_TIMEOUT_MS, {
+    Accept: "application/json,text/plain,*/*",
+    Referer: "https://govspending.org/downloads/"
+  });
+  return { rows: parseGovspendingFredJson(json), source: "FRED via Govspending" };
+}
+
+function parseGovspendingFredJson(json) {
+  return (json.observations || [])
+    .map((row) => ({
+      date: row.date,
+      value: Number(row.value)
+    }))
+    .filter((row) => row.date && Number.isFinite(row.value));
 }
 
 function normalizeYahooPoints(result, config) {
@@ -1864,7 +1938,7 @@ function buildMarketIndicator(config, points, meta) {
   };
 }
 
-function buildFredIndicator(config, rows) {
+function buildFredIndicator(config, rows, source = "FRED") {
   let derivedRows = rows;
   if (config.transform === "monthlyChange") {
     derivedRows = rows.slice(1).map((row, index) => ({
@@ -1895,7 +1969,7 @@ function buildFredIndicator(config, rows) {
     id: config.id,
     name: config.name,
     category: config.category,
-    source: "FRED",
+    source,
     symbol: config.series,
     status: "ok",
     unit: config.unit,
@@ -2335,8 +2409,8 @@ async function fetchJson(url, timeoutMs, headers = {}) {
   return response.json();
 }
 
-async function fetchText(url, timeoutMs) {
-  const response = await fetchWithTimeout(url, timeoutMs);
+async function fetchText(url, timeoutMs, headers = {}) {
+  const response = await fetchWithTimeout(url, timeoutMs, headers);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
 }

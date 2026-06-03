@@ -126,6 +126,10 @@ PGPASSWORD=replace_me
 PGSCHEMA=mktmood
 PGSSL=false
 YAHOO_BASE_URLS=https://query1.finance.yahoo.com,https://query2.finance.yahoo.com
+FRED_TIMEOUT_MS=12000
+CNN_TIMEOUT_MS=12000
+FRED_FALLBACK_BASE_URLS=https://govspending.org/api/export/fred
+FRED_SOURCE_ORDER=govspending,fred
 ```
 
 PostgreSQL 不是强制依赖。没有数据库时，看板仍可运行；有数据库时，MktMood 会保存历史观察，用于识别突破、持续单方向变化、事件预测修正和异动记录。
@@ -295,6 +299,19 @@ curl -I "https://query2.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=6mo&int
 
 ```bash
 YAHOO_BASE_URLS=https://your-yahoo-proxy.example.com,https://query2.finance.yahoo.com
+```
+
+CNN Fear & Greed 会使用浏览器请求头访问 CNN 的 dataviz 接口；FRED 默认优先使用 Govspending 的 FRED 导出 JSON，再回退到官方 FRED CSV。这样能避开部分服务器访问 FRED 很慢的问题。服务器网络较慢时可以调大：
+
+```bash
+FRED_TIMEOUT_MS=20000
+CNN_TIMEOUT_MS=15000
+```
+
+如果你希望优先使用官方 FRED 直连，可以设置：
+
+```bash
+FRED_SOURCE_ORDER=fred,govspending
 ```
 
 ## 设计原则
