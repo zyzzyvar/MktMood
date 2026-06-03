@@ -571,6 +571,12 @@ h3 {
   color: var(--muted);
 }
 
+.event-empty.warning {
+  border-color: #f0d28a;
+  background: #fff8e6;
+  color: #7a5a12;
+}
+
 .framework-summary p,
 .framework-drivers p,
 .agent-section p {

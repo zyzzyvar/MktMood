@@ -116,6 +116,8 @@ function renderAnomalyRadar(anomalyRadar) {
   const equities = anomalyRadar.equityAnomalies?.filter((item) => item.status === "ok") || [];
   const sectors = anomalyRadar.sectorMoves?.filter((item) => item.status === "ok") || [];
   const leaders = anomalyRadar.legacyLeaderAlerts || [];
+  const unavailableEquities = anomalyRadar.equityAnomalies?.filter((item) => item.status === "unavailable") || [];
+  const unavailableSectors = anomalyRadar.sectorMoves?.filter((item) => item.status === "unavailable") || [];
   const visible = filterAnomalies(equities, sectors, leaders);
   const filters = [
     { label: "全部", count: Math.min(equities.length, 10) + Math.min(sectors.length, 8) },
@@ -136,10 +138,17 @@ function renderAnomalyRadar(anomalyRadar) {
   });
   els.equityAnomalies.innerHTML = visible.equities.length
     ? visible.equities.slice(0, 10).map(renderEquityAnomaly).join("")
-    : `<div class="event-empty">暂无全市场显著个股异动。</div>`;
+    : renderAnomalyEmpty("暂无全市场显著个股异动。", unavailableEquities);
   els.sectorMoves.innerHTML = visible.sectors.length
     ? visible.sectors.slice(0, 8).map(renderSectorMove).join("")
-    : `<div class="event-empty">暂无显著行业/板块异动。</div>`;
+    : renderAnomalyEmpty("暂无显著行业/板块异动。", unavailableSectors);
+}
+
+function renderAnomalyEmpty(defaultText, unavailableItems) {
+  if (unavailableItems.length) {
+    return `<div class="event-empty warning">${escapeHtml(unavailableItems[0].explanation || "异动数据源暂时不可用，请稍后刷新。")}</div>`;
+  }
+  return `<div class="event-empty">${escapeHtml(defaultText)}</div>`;
 }
 
 function filterAnomalies(equities, sectors, leaders) {
@@ -434,7 +443,10 @@ function renderIndicators(indicators) {
 }
 
 function renderIndicatorRow(item) {
-  const changeClass = Number(item.changePct || item.change || 0) >= 0 ? "up" : "down";
+  const changeValue = item.changePct === null || item.changePct === undefined ? item.change : item.changePct;
+  const changeClass = Number.isFinite(Number(changeValue))
+    ? (Number(changeValue) >= 0 ? "up" : "down")
+    : "";
   const changeText = item.changePct === null || item.changePct === undefined
     ? formatNumber(item.change)
     : `${formatNumber(item.changePct)}%`;
@@ -513,11 +525,13 @@ function formatScore(value) {
 }
 
 function formatNumber(value) {
+  if (value === null || value === undefined || value === "") return "--";
   if (!Number.isFinite(Number(value))) return "--";
   return Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 }
 
 function formatValue(value, unit) {
+  if (value === null || value === undefined || value === "") return "不可用";
   if (!Number.isFinite(Number(value))) return "不可用";
   return `${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 3 })}${unit ? ` ${unit}` : ""}`;
 }

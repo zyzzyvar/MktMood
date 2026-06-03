@@ -664,8 +664,9 @@ async function buildSnapshot() {
     fetchRatioIndicators(),
     fetchSentimentIndicators()
   ]);
-  const indicators = [...yahooData, ...fredData, ...ratioData, ...sentimentData].sort((a, b) => {
-    if (a.status !== b.status) return a.status === "ok" ? -1 : 1;
+  const indicators = await applyIndicatorFallbacks([...yahooData, ...fredData, ...ratioData, ...sentimentData]);
+  indicators.sort((a, b) => {
+    if (a.status !== b.status) return indicatorStatusRank(a.status) - indicatorStatusRank(b.status);
     return Math.abs(b.score || 0) - Math.abs(a.score || 0);
   });
   const upcomingEvents = await fetchUpcomingEvents();
@@ -706,6 +707,54 @@ async function buildSnapshot() {
   data.storage = await persistSnapshot(data);
   snapshotCache = { createdAt: Date.now(), data };
   return data;
+}
+
+function indicatorStatusRank(status) {
+  return { ok: 0, stale: 1, unavailable: 2 }[status] ?? 3;
+}
+
+async function applyIndicatorFallbacks(indicators) {
+  const missing = indicators.filter((item) => item.status !== "ok");
+  if (!missing.length) return indicators;
+  const fallbackPairs = await Promise.all(missing.map(async (indicator) => {
+    const rows = await getIndicatorObservationHistory(indicator.id, 20);
+    const latestGood = rows.slice().reverse().find((row) => row.status === "ok" && Number.isFinite(Number(row.value)));
+    return [indicator.id, latestGood || null];
+  }));
+  const fallbacks = new Map(fallbackPairs);
+  return indicators.map((indicator) => {
+    if (indicator.status === "ok") return indicator;
+    const row = fallbacks.get(indicator.id);
+    if (!row || !Number.isFinite(Number(row.value))) return indicator;
+    return staleIndicatorFromObservation(indicator, row);
+  });
+}
+
+function staleIndicatorFromObservation(indicator, row) {
+  const value = Number(row.value);
+  const change = row.change === null || row.change === undefined ? null : Number(row.change);
+  const changePct = row.change_pct === null || row.change_pct === undefined ? null : Number(row.change_pct);
+  const trend20 = row.trend20 === null || row.trend20 === undefined ? null : Number(row.trend20);
+  const trend60 = row.trend60 === null || row.trend60 === undefined ? null : Number(row.trend60);
+  const observedAt = row.source_updated_at || row.observed_at;
+  return {
+    ...indicator,
+    status: "stale",
+    value: round(value, valuePrecision(value)),
+    change: Number.isFinite(change) ? round(change, valuePrecision(change)) : null,
+    changePct: Number.isFinite(changePct) ? round(changePct, 2) : null,
+    trend20: Number.isFinite(trend20) ? round(trend20, 2) : null,
+    trend60: Number.isFinite(trend60) ? round(trend60, 2) : null,
+    score: 0,
+    state: "missing",
+    stateLabel: "历史回退",
+    updatedAt: observedAt ? new Date(observedAt).toISOString() : null,
+    reading: `${indicator.name}当前数据源暂时不可用，已显示数据库中最近一次成功观测值；请等待下一轮刷新或检查服务器外网访问。`,
+    signals: [],
+    history: [{ date: observedAt ? new Date(observedAt).toISOString().slice(0, 10) : "", value: round(value, valuePrecision(value)) }],
+    fallbackFrom: "database",
+    liveError: indicator.error
+  };
 }
 
 async function buildDatabaseInsights(indicators, upcomingEvents) {

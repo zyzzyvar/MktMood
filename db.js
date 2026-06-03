@@ -472,7 +472,7 @@ async function getIndicatorObservationHistory(indicatorId, limit = 200) {
   await initDb();
   if (!dbStatus.ok) return [];
   const result = await activePool.query(
-    `SELECT observed_at, value, change, change_pct, trend20, trend60, score, state, state_label, source_updated_at
+    `SELECT observed_at, status, value, change, change_pct, trend20, trend60, score, state, state_label, source_updated_at
        FROM ${qn("indicator_observations")}
       WHERE indicator_id = $1
       ORDER BY observed_at DESC
