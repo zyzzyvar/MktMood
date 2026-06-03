@@ -21,6 +21,10 @@ const CACHE_MS = 60 * 1000;
 const YAHOO_TIMEOUT_MS = 9000;
 const FRED_TIMEOUT_MS = 5500;
 const EVENT_LOOKAHEAD_DAYS = 7;
+const YAHOO_BASE_URLS = (process.env.YAHOO_BASE_URLS || "https://query1.finance.yahoo.com,https://query2.finance.yahoo.com")
+  .split(",")
+  .map((value) => value.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
 
 let snapshotCache = null;
 let snapshotPromise = null;
@@ -984,8 +988,7 @@ async function fetchEquityAnomalies() {
 }
 
 async function fetchYahooScreener(scrId) {
-  const url = `https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=${scrId}&count=100`;
-  const json = await fetchJson(url, YAHOO_TIMEOUT_MS);
+  const json = await fetchYahooJson(`/v1/finance/screener/predefined/saved?scrIds=${encodeURIComponent(scrId)}&count=100`);
   return json.finance?.result?.[0]?.quotes || [];
 }
 
@@ -1771,11 +1774,22 @@ async function fetchYahooIndicators() {
 }
 
 async function fetchYahooChart(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=6mo&interval=1d`;
-  const json = await fetchJson(url, YAHOO_TIMEOUT_MS);
+  const json = await fetchYahooJson(`/v8/finance/chart/${encodeURIComponent(symbol)}?range=6mo&interval=1d`);
   const result = json.chart?.result?.[0];
   if (!result) throw new Error(json.chart?.error?.description || "Yahoo returned no chart result");
   return result;
+}
+
+async function fetchYahooJson(path) {
+  const errors = [];
+  for (const baseUrl of YAHOO_BASE_URLS) {
+    try {
+      return await fetchJson(`${baseUrl}${path}`, YAHOO_TIMEOUT_MS);
+    } catch (error) {
+      errors.push(`${baseUrl}: ${error.message}`);
+    }
+  }
+  throw new Error(`Yahoo Finance unavailable via configured endpoints: ${errors.join(" | ")}`);
 }
 
 async function fetchFredIndicators() {

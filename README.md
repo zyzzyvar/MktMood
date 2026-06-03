@@ -125,6 +125,7 @@ PGUSER=mktmood_user
 PGPASSWORD=replace_me
 PGSCHEMA=mktmood
 PGSSL=false
+YAHOO_BASE_URLS=https://query1.finance.yahoo.com,https://query2.finance.yahoo.com
 ```
 
 PostgreSQL 不是强制依赖。没有数据库时，看板仍可运行；有数据库时，MktMood 会保存历史观察，用于识别突破、持续单方向变化、事件预测修正和异动记录。
@@ -282,6 +283,19 @@ V1.0 使用公开数据源组合：
 - Nasdaq：财报日历和 EPS 共识。
 
 公开数据源偶尔会超时或变更页面结构。MktMood 会尽量降级处理，保留可用部分，并在接口中标记 source status。
+
+如果服务器到 Yahoo Finance 的 TLS 握手失败，例如出现 `SSL_ERROR_SYSCALL`，通常是服务器网络、DNS、出口策略或代理问题。可以先在服务器上检查：
+
+```bash
+curl -I "https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=6mo&interval=1d"
+curl -I "https://query2.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=6mo&interval=1d"
+```
+
+默认会依次尝试 `query1` 和 `query2`。如需接入自己的代理或镜像，可在 `.env` 中设置：
+
+```bash
+YAHOO_BASE_URLS=https://your-yahoo-proxy.example.com,https://query2.finance.yahoo.com
+```
 
 ## 设计原则
 
