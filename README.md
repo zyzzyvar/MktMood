@@ -132,6 +132,7 @@ NASDAQ_TIMEOUT_MS=15000
 FRED_TIMEOUT_MS=12000
 CNN_TIMEOUT_MS=12000
 NASDAQ_STOCK_SCREENER_URL=https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=0&offset=0&download=true
+NASDAQ_PROFILE_CACHE_MS=600000
 NASDAQ_FALLBACK_MIN_MARKET_CAP=300000000
 NASDAQ_FALLBACK_EXTREME_MOVE_PCT=80
 NASDAQ_FALLBACK_EXTREME_MOVE_MIN_MARKET_CAP=1000000000
@@ -308,7 +309,7 @@ curl -I "https://query2.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=6mo&int
 YAHOO_BASE_URLS=https://your-yahoo-proxy.example.com,https://query2.finance.yahoo.com
 ```
 
-当 Yahoo 个股 screener 不可用时，MktMood 会自动切到 Nasdaq stock screener，继续生成高波动个股列表；当 Yahoo 行业 ETF 图表大面积不可用时，会用 Nasdaq screener 按行业聚合出备用板块异动。Nasdaq 备用源没有每只股票的 6 个月历史 K 线，因此备用模式下“波动倍数/量比”可能为空，但涨跌幅、行业、公司简介和异常解释会继续保留。需要代理 Nasdaq 时可以设置：
+当 Yahoo 个股 screener 不可用时，MktMood 会自动切到 Nasdaq stock screener，继续生成高波动个股列表；当 Yahoo 正常但缺少行业字段时，也会用 Nasdaq screener 补全公司画像。当 Yahoo 行业 ETF 图表大面积不可用时，会用 Nasdaq screener 按行业聚合出备用板块异动。Nasdaq 备用源没有每只股票的 6 个月历史 K 线，因此备用模式下“波动倍数/量比”可能为空，但涨跌幅、行业、公司简介和异常解释会继续保留。需要代理 Nasdaq 时可以设置：
 
 ```bash
 NASDAQ_STOCK_SCREENER_URL=https://your-nasdaq-proxy.example.com/api/screener/stocks?tableonly=true&limit=0&offset=0&download=true

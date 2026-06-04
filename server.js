@@ -40,9 +40,12 @@ const FRED_SOURCE_ORDER = (process.env.FRED_SOURCE_ORDER || "govspending,fred")
   .filter(Boolean);
 const NASDAQ_STOCK_SCREENER_URL = process.env.NASDAQ_STOCK_SCREENER_URL
   || "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=0&offset=0&download=true";
+const NASDAQ_PROFILE_CACHE_MS = Number(process.env.NASDAQ_PROFILE_CACHE_MS || 10 * 60 * 1000);
 
 let snapshotCache = null;
 let snapshotPromise = null;
+let nasdaqStockRowsCache = null;
+let nasdaqStockRowsPromise = null;
 
 const yahooIndicators = [
   {
@@ -1002,7 +1005,9 @@ async function fetchEquityAnomalies() {
       })
       .sort((a, b) => Math.abs(Number(b.regularMarketChangePercent) || 0) - Math.abs(Number(a.regularMarketChangePercent) || 0))
       .slice(0, 45);
-    const enriched = await mapWithConcurrency(candidates, 6, enrichEquityAnomaly);
+    const profileMap = await fetchNasdaqStockProfileMap().catch(() => new Map());
+    const profiledCandidates = candidates.map((quote) => applyNasdaqProfileToQuote(quote, profileMap));
+    const enriched = await mapWithConcurrency(profiledCandidates, 6, enrichEquityAnomaly);
     return enriched
       .filter(Boolean)
       .sort(compareEquityAnomalies)
@@ -1045,6 +1050,32 @@ async function fetchNasdaqEquityAnomalies(yahooError) {
     }))
     .sort(compareEquityAnomalies)
     .slice(0, 30);
+}
+
+async function fetchNasdaqStockProfileMap() {
+  const rows = await fetchNasdaqStockRows();
+  const profiles = new Map();
+  for (const row of rows) {
+    const profile = normalizeNasdaqStockRow(row);
+    if (profile) profiles.set(profile.symbol, profile);
+  }
+  return profiles;
+}
+
+function applyNasdaqProfileToQuote(quote, profileMap) {
+  const symbol = String(quote.symbol || "").trim().toUpperCase();
+  const profile = profileMap.get(symbol);
+  if (!profile) return quote;
+  return {
+    ...quote,
+    longName: quote.longName || profile.longName,
+    shortName: quote.shortName || profile.shortName,
+    marketCap: Number(quote.marketCap) || profile.marketCap,
+    sector: quote.sector || profile.sector,
+    industry: quote.industry || profile.industry,
+    currency: quote.currency || profile.currency,
+    profileSource: "Nasdaq screener"
+  };
 }
 
 function isNasdaqFallbackAnomalyCandidate(quote) {
@@ -1241,6 +1272,9 @@ function normalizeExchangeName(exchange) {
 
 function inferSectorLabel(symbol, name, industry = "", sector = "") {
   if (equityProfileOverrides[symbol]?.sectorLabel) return equityProfileOverrides[symbol].sectorLabel;
+  const sourceIndustry = String(industry || "").trim();
+  const industrySector = sectorFromIndustry(sourceIndustry);
+  if (industrySector) return industrySector;
   const sourceSector = String(sector || "").trim();
   if (sourceSector) return translateSector(sourceSector);
   const text = `${symbol} ${name} ${industry}`.toLowerCase();
@@ -1257,10 +1291,26 @@ function inferSectorLabel(symbol, name, industry = "", sector = "") {
   if (/software|oracle|salesforce|snowflake|zscaler|blackberry|cybersecurity/.test(text)) return "企业软件";
   if (/bank|financial|capital|holdings|broker|wealth|futu/.test(text)) return "金融";
   if (/energy|oil|solar|fervo/.test(text)) return "能源";
-  if (/coca|pepsi|food|retail|costco|walmart|mcdonald/.test(text)) return "消费";
+  if (/coca|pepsi|food|beverage|retail|costco|walmart|mcdonald|apparel|garment|clothing|fashion|footwear|luxury|brand|hotel|restaurant|travel|leisure/.test(text)) return "消费";
   if (/pharma|bio|medical|health/.test(text)) return "医疗";
   if (/auto|motor|ford|tesla|gm/.test(text)) return "汽车";
   return "未分类";
+}
+
+function sectorFromIndustry(industry) {
+  if (!industry) return "";
+  if (/garment|clothing|apparel|fashion|footwear|shoe|textile|luxury|department\/specialty retail|retail|catalog\/specialty distribution|restaurants|hotels\/resorts|consumer electronics\/appliances|recreational products\/toys/i.test(industry)) {
+    return "可选消费";
+  }
+  if (/beverage|food|package goods\/cosmetics|household|consumer specialties/i.test(industry)) return "必选消费";
+  if (/semiconductor|computer|software|edp services|telecommunications equipment|communications equipment|electrical products/i.test(industry)) return "科技";
+  if (/biotech|pharmaceutical|medical|hospital|health|diagnostic/i.test(industry)) return "医疗";
+  if (/bank|investment|finance|insurance|capital markets|broker|asset management/i.test(industry)) return "金融";
+  if (/oil|gas|coal|energy|oilfield|uranium|power generation/i.test(industry)) return "能源";
+  if (/real estate|reit|building operators/i.test(industry)) return "房地产";
+  if (/metal|mining|chemical|aluminum|steel|paper|forest products/i.test(industry)) return "基础材料";
+  if (/air freight|marine transportation|transportation|industrial machinery|aerospace|military|construction|building products/i.test(industry)) return "工业";
+  return "";
 }
 
 function inferIndustryLabel(symbol, name, industry = "", sector = "", sectorLabel = "未分类") {
@@ -1294,6 +1344,8 @@ function inferIndustryLabel(symbol, name, industry = "", sector = "", sectorLabe
   if (/pharma/.test(text)) return "制药";
   if (/medical|health/.test(text)) return "医疗服务/设备";
   if (/retail|walmart|costco/.test(text)) return "零售";
+  if (/apparel|garment|clothing|fashion|footwear|luxury|pvh|ralph lauren|capri|tapestry/.test(text)) return "服装/品牌消费";
+  if (/hotel|resort|travel|booking|airbnb|restaurant|leisure/.test(text)) return "旅游休闲/餐饮";
   if (/energy|oil/.test(text)) return "油气能源";
   if (/solar/.test(text)) return "清洁能源";
   if (/auto|motor|ford|tesla|gm/.test(text)) return "整车制造";
@@ -1343,6 +1395,18 @@ function translateIndustry(industry) {
     "Computer Communications Equipment": "通信设备",
     "Telecommunications Equipment": "电信设备",
     "Consumer Electronics": "消费电子",
+    "Garments and Clothing": "服装/品牌消费",
+    "Clothing/Shoe/Accessory Stores": "服装鞋履零售",
+    "Apparel": "服装/品牌消费",
+    "Shoe Manufacturing": "鞋履制造",
+    "Department/Specialty Retail Stores": "百货/专卖零售",
+    "Catalog/Specialty Distribution": "专业零售/渠道分销",
+    "Hotels/Resorts": "酒店/度假村",
+    "Restaurants": "餐饮",
+    "Other Consumer Services": "其他消费服务",
+    "Package Goods/Cosmetics": "日化/美妆",
+    "Beverages (Production/Distribution)": "饮料生产/分销",
+    "Food Distributors": "食品分销",
     "Biotechnology": "生物科技",
     "Biotechnology: Pharmaceutical Preparations": "生物科技/制药",
     "Biotechnology: Biological Products (No Diagnostic Substances)": "生物制品",
@@ -1359,8 +1423,11 @@ function translateIndustry(industry) {
   if (/auto|motor vehicle|o\.e\.m/i.test(industry)) return "汽车产业链";
   if (/real estate|reit/i.test(industry)) return "房地产/REITs";
   if (/oil|gas|energy/i.test(industry)) return "油气能源";
-  if (/retail/i.test(industry)) return "零售";
+  if (/garment|clothing|apparel|fashion|footwear|shoe|luxury/i.test(industry)) return "服装/品牌消费";
+  if (/retail|catalog|specialty distribution/i.test(industry)) return "零售/渠道分销";
+  if (/hotel|resort|restaurant|leisure|travel/i.test(industry)) return "旅游休闲/餐饮";
   if (/beverage|food/i.test(industry)) return "食品饮料";
+  if (/cosmetic|package goods/i.test(industry)) return "日化/美妆";
   return industry;
 }
 
@@ -2045,14 +2112,24 @@ async function fetchYahooJson(path) {
 }
 
 async function fetchNasdaqStockRows() {
-  const json = await fetchJson(NASDAQ_STOCK_SCREENER_URL, NASDAQ_TIMEOUT_MS, {
-    Accept: "application/json,text/plain,*/*",
-    Origin: "https://www.nasdaq.com",
-    Referer: "https://www.nasdaq.com/market-activity/stocks/screener"
-  });
-  const rows = json.data?.rows || [];
-  if (!Array.isArray(rows) || !rows.length) throw new Error("Nasdaq screener returned no rows");
-  return rows;
+  if (nasdaqStockRowsCache && Date.now() - nasdaqStockRowsCache.loadedAt < NASDAQ_PROFILE_CACHE_MS) {
+    return nasdaqStockRowsCache.rows;
+  }
+  if (!nasdaqStockRowsPromise) {
+    nasdaqStockRowsPromise = fetchJson(NASDAQ_STOCK_SCREENER_URL, NASDAQ_TIMEOUT_MS, {
+      Accept: "application/json,text/plain,*/*",
+      Origin: "https://www.nasdaq.com",
+      Referer: "https://www.nasdaq.com/market-activity/stocks/screener"
+    }).then((json) => {
+      const rows = json.data?.rows || [];
+      if (!Array.isArray(rows) || !rows.length) throw new Error("Nasdaq screener returned no rows");
+      nasdaqStockRowsCache = { loadedAt: Date.now(), rows };
+      return rows;
+    }).finally(() => {
+      nasdaqStockRowsPromise = null;
+    });
+  }
+  return nasdaqStockRowsPromise;
 }
 
 function normalizeNasdaqStockRow(row) {
