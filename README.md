@@ -132,6 +132,9 @@ NASDAQ_TIMEOUT_MS=15000
 FRED_TIMEOUT_MS=12000
 CNN_TIMEOUT_MS=12000
 NASDAQ_STOCK_SCREENER_URL=https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=0&offset=0&download=true
+NASDAQ_FALLBACK_MIN_MARKET_CAP=300000000
+NASDAQ_FALLBACK_EXTREME_MOVE_PCT=80
+NASDAQ_FALLBACK_EXTREME_MOVE_MIN_MARKET_CAP=1000000000
 FRED_FALLBACK_BASE_URLS=https://govspending.org/api/export/fred
 FRED_SOURCE_ORDER=govspending,fred
 ```
@@ -309,6 +312,14 @@ YAHOO_BASE_URLS=https://your-yahoo-proxy.example.com,https://query2.finance.yaho
 
 ```bash
 NASDAQ_STOCK_SCREENER_URL=https://your-nasdaq-proxy.example.com/api/screener/stocks?tableonly=true&limit=0&offset=0&download=true
+```
+
+为了避免小市值股票因为 100%+ 的特殊事件涨跌幅挤占主列表，Nasdaq 备用源默认带有质量闸门：市值至少 3 亿美元；低于 10 亿美元的股票若单日涨跌超过 80%，会被视为低代表性极端样本而过滤。需要更激进或更保守时，可调整：
+
+```bash
+NASDAQ_FALLBACK_MIN_MARKET_CAP=300000000
+NASDAQ_FALLBACK_EXTREME_MOVE_PCT=80
+NASDAQ_FALLBACK_EXTREME_MOVE_MIN_MARKET_CAP=1000000000
 ```
 
 CNN Fear & Greed 会使用浏览器请求头访问 CNN 的 dataviz 接口；FRED 默认优先使用 Govspending 的 FRED 导出 JSON，再回退到官方 FRED CSV。这样能避开部分服务器访问 FRED 很慢的问题。服务器网络较慢时可以调大：

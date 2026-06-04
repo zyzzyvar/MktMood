@@ -20,6 +20,9 @@ const HOST = process.env.HOST || "0.0.0.0";
 const CACHE_MS = 60 * 1000;
 const YAHOO_TIMEOUT_MS = 9000;
 const NASDAQ_TIMEOUT_MS = Number(process.env.NASDAQ_TIMEOUT_MS || 15000);
+const NASDAQ_FALLBACK_MIN_MARKET_CAP = Number(process.env.NASDAQ_FALLBACK_MIN_MARKET_CAP || 300_000_000);
+const NASDAQ_FALLBACK_EXTREME_MOVE_PCT = Number(process.env.NASDAQ_FALLBACK_EXTREME_MOVE_PCT || 80);
+const NASDAQ_FALLBACK_EXTREME_MOVE_MIN_MARKET_CAP = Number(process.env.NASDAQ_FALLBACK_EXTREME_MOVE_MIN_MARKET_CAP || 1_000_000_000);
 const FRED_TIMEOUT_MS = Number(process.env.FRED_TIMEOUT_MS || 12000);
 const CNN_TIMEOUT_MS = Number(process.env.CNN_TIMEOUT_MS || 12000);
 const EVENT_LOOKAHEAD_DAYS = 7;
@@ -1002,7 +1005,7 @@ async function fetchEquityAnomalies() {
     const enriched = await mapWithConcurrency(candidates, 6, enrichEquityAnomaly);
     return enriched
       .filter(Boolean)
-      .sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || Math.abs(b.changePct) - Math.abs(a.changePct))
+      .sort(compareEquityAnomalies)
       .slice(0, 30);
   } catch (yahooError) {
     try {
@@ -1030,17 +1033,8 @@ async function fetchNasdaqEquityAnomalies(yahooError) {
   const candidates = rows
     .map(normalizeNasdaqStockRow)
     .filter(Boolean)
-    .filter((quote) => {
-      const changePct = Math.abs(Number(quote.regularMarketChangePercent) || 0);
-      const marketCap = Number(quote.marketCap) || 0;
-      const volume = Number(quote.regularMarketVolume) || 0;
-      const price = Number(quote.regularMarketPrice) || 0;
-      if (price < 1 || volume < 100_000) return false;
-      if (marketCap >= 50_000_000_000 && changePct >= 4) return true;
-      if (marketCap >= 500_000_000 && changePct >= 6) return true;
-      return volume >= 1_000_000 && changePct >= 8;
-    })
-    .sort((a, b) => Math.abs(Number(b.regularMarketChangePercent) || 0) - Math.abs(Number(a.regularMarketChangePercent) || 0))
+    .filter(isNasdaqFallbackAnomalyCandidate)
+    .sort(compareNasdaqFallbackQuotes)
     .slice(0, 45);
   const enriched = await mapWithConcurrency(candidates, 6, enrichEquityAnomaly);
   return enriched
@@ -1049,8 +1043,55 @@ async function fetchNasdaqEquityAnomalies(yahooError) {
       ...item,
       dataSourceNote: `Yahoo 个股异动接口失败，已使用 Nasdaq screener 备用源。原始错误：${yahooError.message}`
     }))
-    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || Math.abs(b.changePct) - Math.abs(a.changePct))
+    .sort(compareEquityAnomalies)
     .slice(0, 30);
+}
+
+function isNasdaqFallbackAnomalyCandidate(quote) {
+  const changePct = Math.abs(Number(quote.regularMarketChangePercent) || 0);
+  const marketCap = Number(quote.marketCap) || 0;
+  const volume = Number(quote.regularMarketVolume) || 0;
+  const price = Number(quote.regularMarketPrice) || 0;
+  if (price < 2 || volume < 100_000 || marketCap < NASDAQ_FALLBACK_MIN_MARKET_CAP) return false;
+  if (changePct >= NASDAQ_FALLBACK_EXTREME_MOVE_PCT && marketCap < NASDAQ_FALLBACK_EXTREME_MOVE_MIN_MARKET_CAP) {
+    return false;
+  }
+  if (marketCap >= 50_000_000_000) return changePct >= 4;
+  if (marketCap >= 10_000_000_000) return changePct >= 5;
+  if (marketCap >= 2_000_000_000) return changePct >= 6;
+  if (marketCap >= 500_000_000) return changePct >= 8;
+  return changePct >= 12 && volume >= 1_000_000;
+}
+
+function compareNasdaqFallbackQuotes(a, b) {
+  return nasdaqFallbackQuoteScore(b) - nasdaqFallbackQuoteScore(a);
+}
+
+function nasdaqFallbackQuoteScore(quote) {
+  const changePct = Math.abs(Number(quote.regularMarketChangePercent) || 0);
+  const marketCap = Number(quote.marketCap) || 0;
+  const volume = Number(quote.regularMarketVolume) || 0;
+  const leaderBonus = traditionalLeaderTags[quote.symbol] ? 30 : 0;
+  const sizeScore = Math.log10(Math.max(marketCap, 1)) * 5;
+  const volumeScore = Math.min(Math.log10(Math.max(volume, 1)), 9);
+  return leaderBonus + sizeScore + volumeScore + Math.min(changePct, 30);
+}
+
+function compareEquityAnomalies(a, b) {
+  return severityRank(a.severity) - severityRank(b.severity)
+    || Number(Boolean(b.isTraditionalLeader)) - Number(Boolean(a.isTraditionalLeader))
+    || marketCapRank(b.marketCap) - marketCapRank(a.marketCap)
+    || Math.abs(b.changePct) - Math.abs(a.changePct);
+}
+
+function marketCapRank(value) {
+  const marketCap = Number(value) || 0;
+  if (marketCap >= 200_000_000_000) return 5;
+  if (marketCap >= 50_000_000_000) return 4;
+  if (marketCap >= 10_000_000_000) return 3;
+  if (marketCap >= 2_000_000_000) return 2;
+  if (marketCap >= 500_000_000) return 1;
+  return 0;
 }
 
 async function enrichEquityAnomaly(quote) {
@@ -2021,6 +2062,14 @@ function normalizeNasdaqStockRow(row) {
   const changePct = parseComparableNumber(row.pctchange);
   if (!Number.isFinite(changePct)) return null;
   const price = parseComparableNumber(row.lastsale);
+  const netChange = parseComparableNumber(row.netchange);
+  if (Number.isFinite(price) && Number.isFinite(netChange)) {
+    const previous = price - netChange;
+    const derivedChangePct = previous > 0 ? pct(price, previous) : null;
+    if (Number.isFinite(derivedChangePct) && Math.abs(derivedChangePct - changePct) > Math.max(2, Math.abs(changePct) * 0.08)) {
+      return null;
+    }
+  }
   const volume = parseComparableNumber(row.volume);
   const marketCap = parseMarketCap(row.marketCap);
   return {
