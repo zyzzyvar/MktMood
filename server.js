@@ -19,6 +19,7 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const CACHE_MS = 60 * 1000;
 const YAHOO_TIMEOUT_MS = 9000;
+const NASDAQ_TIMEOUT_MS = Number(process.env.NASDAQ_TIMEOUT_MS || 15000);
 const FRED_TIMEOUT_MS = Number(process.env.FRED_TIMEOUT_MS || 12000);
 const CNN_TIMEOUT_MS = Number(process.env.CNN_TIMEOUT_MS || 12000);
 const EVENT_LOOKAHEAD_DAYS = 7;
@@ -34,6 +35,8 @@ const FRED_SOURCE_ORDER = (process.env.FRED_SOURCE_ORDER || "govspending,fred")
   .split(",")
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
+const NASDAQ_STOCK_SCREENER_URL = process.env.NASDAQ_STOCK_SCREENER_URL
+  || "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=0&offset=0&download=true";
 
 let snapshotCache = null;
 let snapshotPromise = null;
@@ -1001,15 +1004,19 @@ async function fetchEquityAnomalies() {
       .filter(Boolean)
       .sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || Math.abs(b.changePct) - Math.abs(a.changePct))
       .slice(0, 30);
-  } catch (error) {
-    return [{
-      status: "unavailable",
-      symbol: "market",
-      name: "全市场个股异动",
-      anomalyType: "source_unavailable",
-      severity: "medium",
-      explanation: `个股异动源暂不可用：${error.message}`
-    }];
+  } catch (yahooError) {
+    try {
+      return await fetchNasdaqEquityAnomalies(yahooError);
+    } catch (nasdaqError) {
+      return [{
+        status: "unavailable",
+        symbol: "market",
+        name: "全市场个股异动",
+        anomalyType: "source_unavailable",
+        severity: "medium",
+        explanation: `个股异动源暂不可用：Yahoo ${yahooError.message}；Nasdaq ${nasdaqError.message}`
+      }];
+    }
   }
 }
 
@@ -1018,11 +1025,39 @@ async function fetchYahooScreener(scrId) {
   return json.finance?.result?.[0]?.quotes || [];
 }
 
+async function fetchNasdaqEquityAnomalies(yahooError) {
+  const rows = await fetchNasdaqStockRows();
+  const candidates = rows
+    .map(normalizeNasdaqStockRow)
+    .filter(Boolean)
+    .filter((quote) => {
+      const changePct = Math.abs(Number(quote.regularMarketChangePercent) || 0);
+      const marketCap = Number(quote.marketCap) || 0;
+      const volume = Number(quote.regularMarketVolume) || 0;
+      const price = Number(quote.regularMarketPrice) || 0;
+      if (price < 1 || volume < 100_000) return false;
+      if (marketCap >= 50_000_000_000 && changePct >= 4) return true;
+      if (marketCap >= 500_000_000 && changePct >= 6) return true;
+      return volume >= 1_000_000 && changePct >= 8;
+    })
+    .sort((a, b) => Math.abs(Number(b.regularMarketChangePercent) || 0) - Math.abs(Number(a.regularMarketChangePercent) || 0))
+    .slice(0, 45);
+  const enriched = await mapWithConcurrency(candidates, 6, enrichEquityAnomaly);
+  return enriched
+    .filter(Boolean)
+    .map((item) => ({
+      ...item,
+      dataSourceNote: `Yahoo 个股异动接口失败，已使用 Nasdaq screener 备用源。原始错误：${yahooError.message}`
+    }))
+    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || Math.abs(b.changePct) - Math.abs(a.changePct))
+    .slice(0, 30);
+}
+
 async function enrichEquityAnomaly(quote) {
   const symbol = String(quote.symbol || "").toUpperCase();
   const name = quote.longName || quote.shortName || symbol;
   const changePct = Number(quote.regularMarketChangePercent) || 0;
-  const chart = await fetchYahooChart(symbol).catch(() => null);
+  const chart = quote.source === "Nasdaq screener" ? null : await fetchYahooChart(symbol).catch(() => null);
   const stats = chart ? computeChartStats(chart) : {};
   const absChange = Math.abs(changePct);
   const abnormalMoveRatio = stats.avgAbsChangePct ? absChange / stats.avgAbsChangePct : null;
@@ -1064,7 +1099,7 @@ async function enrichEquityAnomaly(quote) {
     industryLabel,
     companyBrief,
     explanation: buildEquityAnomalyExplanation(symbol, changePct, profileClassification, marketLabel, sectorLabel, industryLabel, abnormalMoveRatio, volumeRatio),
-    source: "Yahoo Finance screener"
+    source: quote.source || "Yahoo Finance screener"
   };
 }
 
@@ -1227,16 +1262,22 @@ function inferIndustryLabel(symbol, name, industry = "", sector = "", sectorLabe
 function translateSector(sector) {
   const map = {
     Technology: "科技",
+    Finance: "金融",
     "Financial Services": "金融",
     Healthcare: "医疗",
+    "Health Care": "医疗",
+    "Consumer Discretionary": "可选消费",
     "Consumer Cyclical": "可选消费",
+    "Consumer Staples": "必选消费",
     "Consumer Defensive": "必选消费",
     Industrials: "工业",
     Energy: "能源",
+    Telecommunications: "通信服务",
     "Communication Services": "通信服务",
     "Basic Materials": "基础材料",
     Utilities: "公用事业",
-    "Real Estate": "房地产"
+    "Real Estate": "房地产",
+    Miscellaneous: "综合/其他"
   };
   return map[sector] || sector;
 }
@@ -1244,17 +1285,42 @@ function translateSector(sector) {
 function translateIndustry(industry) {
   const map = {
     "Semiconductors": "半导体",
+    "Auto Parts:O.E.M.": "汽车零部件/OEM",
     "Software - Application": "应用软件",
     "Software - Infrastructure": "基础软件",
+    "Computer Software: Prepackaged Software": "软件/SaaS",
+    "Computer Software: Programming Data Processing": "软件/数据处理",
+    "EDP Services": "数据处理/IT服务",
     "Capital Markets": "资本市场/券商",
     "Banks - Diversified": "综合银行",
+    "Major Banks": "大型银行",
+    "Commercial Banks": "商业银行",
+    "Investment Managers": "资产管理",
     "Auto Manufacturers": "整车制造",
     "Computer Hardware": "计算机硬件",
+    "Computer Manufacturing": "计算机硬件制造",
+    "Computer Communications Equipment": "通信设备",
+    "Telecommunications Equipment": "电信设备",
     "Consumer Electronics": "消费电子",
     "Biotechnology": "生物科技",
+    "Biotechnology: Pharmaceutical Preparations": "生物科技/制药",
+    "Biotechnology: Biological Products (No Diagnostic Substances)": "生物制品",
+    "Biotechnology: Commercial Physical & Biological Resarch": "生物科技研发服务",
     "Drug Manufacturers - General": "综合制药"
   };
-  return map[industry] || industry;
+  if (map[industry]) return map[industry];
+  if (/semiconductor/i.test(industry)) return "半导体";
+  if (/software|programming|data processing/i.test(industry)) return "软件/数据处理";
+  if (/biotech|pharmaceutical|biological/i.test(industry)) return "生物医药";
+  if (/bank/i.test(industry)) return "银行";
+  if (/investment|finance|capital/i.test(industry)) return "金融服务";
+  if (/telecommunications|communications equipment/i.test(industry)) return "通信设备";
+  if (/auto|motor vehicle|o\.e\.m/i.test(industry)) return "汽车产业链";
+  if (/real estate|reit/i.test(industry)) return "房地产/REITs";
+  if (/oil|gas|energy/i.test(industry)) return "油气能源";
+  if (/retail/i.test(industry)) return "零售";
+  if (/beverage|food/i.test(industry)) return "食品饮料";
+  return industry;
 }
 
 function buildCompanyBrief(symbol, name, classification, marketLabel, sectorLabel, industryLabel) {
@@ -1284,7 +1350,7 @@ function buildEquityAnomalyExplanation(symbol, changePct, classification, market
 }
 
 async function fetchSectorMoves() {
-  const moves = await mapWithConcurrency(sectorEtfs, 6, async (config) => {
+  const results = await mapWithConcurrency(sectorEtfs, 6, async (config) => {
     try {
       const result = await fetchYahooChart(config.symbol);
       const points = normalizeYahooPoints(result, { id: config.symbol, unit: "" });
@@ -1309,13 +1375,91 @@ async function fetchSectorMoves() {
         changePct: round(changePct, 2),
         trend20: round(trend20, 2),
         abnormalMoveRatio: round(abnormalMoveRatio, 2),
+        source: "Yahoo Finance ETF chart",
         explanation: `${config.name}板块 ETF ${config.symbol} 单日${direction === "down" ? "下跌" : "上涨"} ${Math.abs(round(changePct, 2))}%，约为自身常态波动 ${round(abnormalMoveRatio, 1)} 倍。`
       };
-    } catch {
-      return null;
+    } catch (error) {
+      return { status: "unavailable", error: error.message, symbol: config.symbol };
     }
   });
-  return moves.filter(Boolean).sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || Math.abs(b.changePct) - Math.abs(a.changePct));
+  const moves = results
+    .filter((item) => item && item.status !== "unavailable")
+    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || Math.abs(b.changePct) - Math.abs(a.changePct));
+  const failures = results.filter((item) => item?.status === "unavailable");
+  if (moves.length || failures.length < Math.ceil(sectorEtfs.length * 0.8)) return moves;
+  try {
+    return await fetchNasdaqSectorMoves(failures);
+  } catch (error) {
+    return [{
+      type: "sector_move",
+      status: "unavailable",
+      symbol: "sector",
+      name: "行业/板块异动",
+      severity: "medium",
+      explanation: `板块异动源暂不可用：Yahoo ETF 图表大面积失败；Nasdaq ${error.message}`
+    }];
+  }
+}
+
+async function fetchNasdaqSectorMoves(yahooFailures) {
+  const rows = await fetchNasdaqStockRows();
+  const groups = new Map();
+  for (const row of rows) {
+    const quote = normalizeNasdaqStockRow(row);
+    if (!quote) continue;
+    const changePct = Number(quote.regularMarketChangePercent);
+    const marketCap = Number(quote.marketCap) || 0;
+    const volume = Number(quote.regularMarketVolume) || 0;
+    const price = Number(quote.regularMarketPrice) || 0;
+    if (!Number.isFinite(changePct) || marketCap < 1_000_000_000 || volume < 100_000 || price < 1) continue;
+    const sectorLabel = inferSectorLabel(quote.symbol, quote.shortName, quote.industry, quote.sector);
+    if (!sectorLabel || sectorLabel === "未分类") continue;
+    const existing = groups.get(sectorLabel) || {
+      label: sectorLabel,
+      count: 0,
+      up: 0,
+      down: 0,
+      weightedChange: 0,
+      weight: 0,
+      highMoveCount: 0
+    };
+    const weight = Math.min(Math.max(marketCap, 1), 500_000_000_000);
+    existing.count += 1;
+    existing.up += changePct > 0 ? 1 : 0;
+    existing.down += changePct < 0 ? 1 : 0;
+    existing.weightedChange += changePct * weight;
+    existing.weight += weight;
+    existing.highMoveCount += Math.abs(changePct) >= 5 ? 1 : 0;
+    groups.set(sectorLabel, existing);
+  }
+  const moves = [...groups.values()]
+    .map((group) => {
+      const changePct = group.weight ? group.weightedChange / group.weight : 0;
+      const breadth = group.count ? Math.round((Math.max(group.up, group.down) / group.count) * 100) : 0;
+      const direction = changePct < 0 ? "down" : "up";
+      if (group.count < 8 || (Math.abs(changePct) < 1.2 && group.highMoveCount < 4)) return null;
+      return {
+        type: "sector_move",
+        status: "ok",
+        symbol: `NASDAQ:${group.label}`,
+        name: `${group.label}股票群组`,
+        group: "Nasdaq screener 聚合",
+        direction,
+        severity: Math.abs(changePct) >= 2.2 || group.highMoveCount >= 8 ? "high" : "medium",
+        changePct: round(changePct, 2),
+        trend20: null,
+        abnormalMoveRatio: null,
+        source: "Nasdaq screener fallback",
+        explanation: `Yahoo 板块 ETF 图表大面积失败，改用 Nasdaq screener 按行业聚合。${group.label}样本 ${group.count} 只，市值加权单日${direction === "down" ? "下跌" : "上涨"} ${Math.abs(round(changePct, 2))}%，约 ${breadth}% 样本同向，显著个股 ${group.highMoveCount} 只。`
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || Math.abs(b.changePct) - Math.abs(a.changePct))
+    .slice(0, 8);
+  if (!moves.length) {
+    throw new Error(`Nasdaq screener 可用但未发现达到阈值的板块异动；Yahoo failures=${yahooFailures.length}`);
+  }
+  return moves;
 }
 
 function buildAnomalySummary(equityAnomalies, sectorMoves) {
@@ -1857,6 +2001,59 @@ async function fetchYahooJson(path) {
     }
   }
   throw new Error(`Yahoo Finance unavailable via configured endpoints: ${errors.join(" | ")}`);
+}
+
+async function fetchNasdaqStockRows() {
+  const json = await fetchJson(NASDAQ_STOCK_SCREENER_URL, NASDAQ_TIMEOUT_MS, {
+    Accept: "application/json,text/plain,*/*",
+    Origin: "https://www.nasdaq.com",
+    Referer: "https://www.nasdaq.com/market-activity/stocks/screener"
+  });
+  const rows = json.data?.rows || [];
+  if (!Array.isArray(rows) || !rows.length) throw new Error("Nasdaq screener returned no rows");
+  return rows;
+}
+
+function normalizeNasdaqStockRow(row) {
+  const symbol = String(row.symbol || "").trim().toUpperCase();
+  const name = cleanNasdaqCompanyName(row.name || symbol);
+  if (!symbol || !name || isNasdaqDerivativeRow(symbol, name, row)) return null;
+  const changePct = parseComparableNumber(row.pctchange);
+  if (!Number.isFinite(changePct)) return null;
+  const price = parseComparableNumber(row.lastsale);
+  const volume = parseComparableNumber(row.volume);
+  const marketCap = parseMarketCap(row.marketCap);
+  return {
+    symbol,
+    shortName: name,
+    longName: name,
+    regularMarketPrice: price,
+    regularMarketChangePercent: changePct,
+    regularMarketVolume: Number.isFinite(volume) ? volume : null,
+    marketCap,
+    market: "us_market",
+    fullExchangeName: "美股综合市场",
+    exchange: "US",
+    currency: "USD",
+    sector: row.sector || "",
+    industry: row.industry || "",
+    source: "Nasdaq screener"
+  };
+}
+
+function isNasdaqDerivativeRow(symbol, name, row) {
+  const text = `${symbol} ${name} ${row.industry || ""}`.toLowerCase();
+  if (/[\^/]|\$/.test(symbol)) return true;
+  if (/\b(warrant|warrants|right|rights|unit|units|preferred|preference|note|notes|bond|debenture)\b/i.test(text)) return true;
+  if (/blank checks/i.test(row.industry || "")) return true;
+  return false;
+}
+
+function cleanNasdaqCompanyName(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/\b(Common Stock|Class [A-Z] Ordinary Shares?|Class [A-Z] Common Stock|Ordinary Shares?|American Depositary Shares?|American Depository Shares?|ADS|ADR)\b\.?/gi, "")
+    .trim();
 }
 
 async function fetchFredIndicators() {

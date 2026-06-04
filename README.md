@@ -128,8 +128,10 @@ PGPASSWORD=replace_me
 PGSCHEMA=mktmood
 PGSSL=false
 YAHOO_BASE_URLS=https://query1.finance.yahoo.com,https://query2.finance.yahoo.com
+NASDAQ_TIMEOUT_MS=15000
 FRED_TIMEOUT_MS=12000
 CNN_TIMEOUT_MS=12000
+NASDAQ_STOCK_SCREENER_URL=https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=0&offset=0&download=true
 FRED_FALLBACK_BASE_URLS=https://govspending.org/api/export/fred
 FRED_SOURCE_ORDER=govspending,fred
 ```
@@ -286,7 +288,7 @@ V1.0 使用公开数据源组合：
 - FRED：宏观时间序列。
 - CNN Fear & Greed：风险偏好。
 - Trading Economics：经济日历。
-- Nasdaq：财报日历和 EPS 共识。
+- Nasdaq：财报日历、EPS 共识，以及 Yahoo 个股/行业异动不可用时的备用 screener。
 
 公开数据源偶尔会超时或变更页面结构。MktMood 会尽量降级处理，保留可用部分，并在接口中标记 source status。
 
@@ -301,6 +303,12 @@ curl -I "https://query2.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=6mo&int
 
 ```bash
 YAHOO_BASE_URLS=https://your-yahoo-proxy.example.com,https://query2.finance.yahoo.com
+```
+
+当 Yahoo 个股 screener 不可用时，MktMood 会自动切到 Nasdaq stock screener，继续生成高波动个股列表；当 Yahoo 行业 ETF 图表大面积不可用时，会用 Nasdaq screener 按行业聚合出备用板块异动。Nasdaq 备用源没有每只股票的 6 个月历史 K 线，因此备用模式下“波动倍数/量比”可能为空，但涨跌幅、行业、公司简介和异常解释会继续保留。需要代理 Nasdaq 时可以设置：
+
+```bash
+NASDAQ_STOCK_SCREENER_URL=https://your-nasdaq-proxy.example.com/api/screener/stocks?tableonly=true&limit=0&offset=0&download=true
 ```
 
 CNN Fear & Greed 会使用浏览器请求头访问 CNN 的 dataviz 接口；FRED 默认优先使用 Govspending 的 FRED 导出 JSON，再回退到官方 FRED CSV。这样能避开部分服务器访问 FRED 很慢的问题。服务器网络较慢时可以调大：
