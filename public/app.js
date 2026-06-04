@@ -4,6 +4,9 @@ const state = {
   selectedCategory: "全部",
   eventFilter: "全部",
   anomalyFilter: "全部",
+  agentType: "generic",
+  agentSeverity: "high",
+  agentLimit: "10",
   loadingTimer: null,
   loadingIndex: 0
 };
@@ -44,10 +47,45 @@ const els = {
   categoryFilters: document.querySelector("#categoryFilters"),
   indicatorTable: document.querySelector("#indicatorTable"),
   refreshButton: document.querySelector("#refreshButton"),
+  agentCenterButton: document.querySelector("#agentCenterButton"),
+  agentModal: document.querySelector("#agentModal"),
+  agentModalClose: document.querySelector("#agentModalClose"),
+  agentTypeSelect: document.querySelector("#agentTypeSelect"),
+  agentSeveritySelect: document.querySelector("#agentSeveritySelect"),
+  agentLimitSelect: document.querySelector("#agentLimitSelect"),
+  agentMonitorUrl: document.querySelector("#agentMonitorUrl"),
+  agentPromptText: document.querySelector("#agentPromptText"),
+  copyAgentUrl: document.querySelector("#copyAgentUrl"),
+  copyAgentPrompt: document.querySelector("#copyAgentPrompt"),
+  testAgentMonitor: document.querySelector("#testAgentMonitor"),
+  agentTestResult: document.querySelector("#agentTestResult"),
   sparklineTemplate: document.querySelector("#sparklineTemplate")
 };
 
 els.refreshButton.addEventListener("click", () => loadSnapshot(true));
+els.agentCenterButton.addEventListener("click", openAgentCenter);
+els.agentModalClose.addEventListener("click", closeAgentCenter);
+els.agentModal.addEventListener("click", (event) => {
+  if (event.target === els.agentModal) closeAgentCenter();
+});
+els.agentTypeSelect.addEventListener("change", () => {
+  state.agentType = els.agentTypeSelect.value;
+  renderAgentCenter();
+});
+els.agentSeveritySelect.addEventListener("change", () => {
+  state.agentSeverity = els.agentSeveritySelect.value;
+  renderAgentCenter();
+});
+els.agentLimitSelect.addEventListener("change", () => {
+  state.agentLimit = els.agentLimitSelect.value;
+  renderAgentCenter();
+});
+els.copyAgentUrl.addEventListener("click", () => copyText(els.agentMonitorUrl.textContent, els.copyAgentUrl));
+els.copyAgentPrompt.addEventListener("click", () => copyText(els.agentPromptText.textContent, els.copyAgentPrompt));
+els.testAgentMonitor.addEventListener("click", testAgentMonitor);
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.agentModal.hidden) closeAgentCenter();
+});
 
 loadSnapshot();
 
@@ -90,6 +128,134 @@ function render() {
   renderDimensions(snapshot.dimensions);
   renderCategoryFilters(snapshot.indicators);
   renderIndicators(snapshot.indicators);
+}
+
+function openAgentCenter() {
+  els.agentModal.hidden = false;
+  renderAgentCenter();
+}
+
+function closeAgentCenter() {
+  els.agentModal.hidden = true;
+}
+
+function renderAgentCenter() {
+  const config = getAgentConfig();
+  els.agentMonitorUrl.textContent = config.url;
+  els.agentPromptText.textContent = buildAgentPrompt(config);
+  els.agentTestResult.textContent = "尚未测试";
+  els.agentTestResult.className = "agent-test-result";
+}
+
+function getAgentConfig() {
+  const base = window.location.origin;
+  const severity = state.agentSeverity;
+  const limit = state.agentLimit;
+  return {
+    type: state.agentType,
+    severity,
+    limit,
+    url: `${base}/api/hermes/monitor?minSeverity=${encodeURIComponent(severity)}&limit=${encodeURIComponent(limit)}`,
+    healthUrl: `${base}/api/health`,
+    contextUrl: `${base}/api/agent/context?framework=liquidity-risk`,
+    cadence: severity === "low" ? "每 30 分钟" : "每小时"
+  };
+}
+
+function buildAgentPrompt(config) {
+  const severityText = {
+    high: "只提醒高优先级事项",
+    medium: "提醒高优先级和中等优先级事项",
+    low: "提醒所有可观察事项，适合调试或高敏感监控"
+  }[config.severity] || "只提醒高优先级事项";
+  const common = [
+    "你是我的市场监控 Agent。",
+    `请${config.cadence}调用 MktMood 监控接口：`,
+    config.url,
+    "",
+    `提醒策略：${severityText}。`,
+    "如果 shouldNotify=false，不要发送消息。",
+    "如果 shouldNotify=true，请读取 alerts、telegramText 和 dedupeKeys。",
+    "请用 dedupeKeys 去重，只发送之前没有发送过的新事项；dedupeKeys 建议保存 1-3 天。",
+    "默认直接发送 telegramText；如果你要重排消息，请保留每条 alert 的 severity、title、detail 和 actionHint。",
+    "如果接口失败，请先调用健康检查接口确认服务状态：",
+    config.healthUrl
+  ];
+
+  if (config.type === "hermes") {
+    return [
+      ...common,
+      "",
+      "Hermes 执行要求：",
+      "1. 使用 Telegram 作为通知渠道。",
+      "2. shouldNotify=true 且存在新 dedupeKey 时才发消息。",
+      "3. Telegram 正文优先使用 response.telegramText。",
+      "4. 如果连续 3 次接口失败，再发送一次服务异常提醒；不要每次失败都刷屏。"
+    ].join("\n");
+  }
+
+  if (config.type === "openclaw") {
+    return [
+      ...common,
+      "",
+      "OpenClaw 执行要求：",
+      "1. 创建一个周期性任务，按上述频率调用接口。",
+      "2. 把 dedupeKeys 存入任务状态或持久化存储。",
+      "3. 当 alerts 中出现 indicator_signal、leader_anomaly、sector_move 或 event_due 时，优先提醒。",
+      "4. 需要更完整上下文时，再调用：",
+      config.contextUrl
+    ].join("\n");
+  }
+
+  if (config.type === "shell") {
+    return [
+      "# Cron / Shell 示例",
+      `# ${config.cadence}调用一次，拿到 JSON 后由你的脚本判断 shouldNotify 和 dedupeKeys。`,
+      `curl --max-time 45 "${config.url}"`,
+      "",
+      "# 健康检查",
+      `curl --max-time 10 "${config.healthUrl}"`
+    ].join("\n");
+  }
+
+  return [
+    ...common,
+    "",
+    "你不需要预测市场，只需要忠实执行监控、去重和提醒。遇到交易含义不明确的事项，请把它表述成“需要关注/核验”，不要直接给买卖建议。"
+  ].join("\n");
+}
+
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+    flashButton(button, "已复制");
+  } catch {
+    flashButton(button, "复制失败");
+  }
+}
+
+function flashButton(button, text) {
+  const original = button.textContent;
+  button.textContent = text;
+  window.setTimeout(() => {
+    button.textContent = original;
+  }, 1400);
+}
+
+async function testAgentMonitor() {
+  const config = getAgentConfig();
+  els.agentTestResult.textContent = "正在测试...";
+  els.agentTestResult.className = "agent-test-result";
+  try {
+    const response = await fetch(config.url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    els.agentTestResult.className = `agent-test-result ${data.shouldNotify ? "warning" : "ok"}`;
+    els.agentTestResult.textContent = `接口可用 · shouldNotify=${Boolean(data.shouldNotify)} · alertCount=${data.alertCount ?? 0}`;
+  } catch (error) {
+    els.agentTestResult.className = "agent-test-result error";
+    els.agentTestResult.textContent = `接口失败：${error.message}`;
+  }
 }
 
 function renderScoreRing(score) {

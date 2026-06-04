@@ -13,6 +13,7 @@
         <h1>市场氛围综合看板</h1>
       </div>
       <div class="top-actions">
+        <button id="agentCenterButton" class="primary-action" type="button">接入 Agent</button>
         <button id="refreshButton" class="icon-button" type="button" title="刷新数据" aria-label="刷新数据">
           <span class="refresh-icon"></span>
         </button>
@@ -22,6 +23,72 @@
         </div>
       </div>
     </header>
+
+    <div id="agentModal" class="modal-overlay" hidden>
+      <section class="agent-modal" role="dialog" aria-modal="true" aria-labelledby="agentModalTitle">
+        <div class="modal-head">
+          <div>
+            <p class="section-kicker">Agent Integration</p>
+            <h2 id="agentModalTitle">让你的 Agent 替你盯市场</h2>
+          </div>
+          <button id="agentModalClose" class="icon-button" type="button" title="关闭" aria-label="关闭">×</button>
+        </div>
+
+        <p class="agent-intro">
+          复制下面的指令给 Hermes、OpenClaw 或任何支持定时任务的 Agent。它会定时读取 MktMood，只在出现重要宏观发布、指标突破、龙头异动或异常波动时提醒你。
+        </p>
+
+        <div class="agent-controls">
+          <label>
+            <span>Agent 类型</span>
+            <select id="agentTypeSelect">
+              <option value="generic">通用 Agent</option>
+              <option value="hermes">Hermes / Telegram</option>
+              <option value="openclaw">OpenClaw</option>
+              <option value="shell">Cron / Shell</option>
+            </select>
+          </label>
+          <label>
+            <span>提醒敏感度</span>
+            <select id="agentSeveritySelect">
+              <option value="high">只提醒高优先级</option>
+              <option value="medium">更敏感</option>
+              <option value="low">全部观察</option>
+            </select>
+          </label>
+          <label>
+            <span>每次最多提醒</span>
+            <select id="agentLimitSelect">
+              <option value="5">5 条</option>
+              <option value="10" selected>10 条</option>
+              <option value="20">20 条</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="agent-output-grid">
+          <div class="agent-copy-panel">
+            <div class="copy-head">
+              <strong>监控接口</strong>
+              <button id="copyAgentUrl" class="small-button" type="button">复制</button>
+            </div>
+            <code id="agentMonitorUrl" class="agent-url"></code>
+          </div>
+          <div class="agent-copy-panel">
+            <div class="copy-head">
+              <strong>Agent 指令</strong>
+              <button id="copyAgentPrompt" class="small-button" type="button">复制</button>
+            </div>
+            <pre id="agentPromptText"></pre>
+          </div>
+        </div>
+
+        <div class="agent-test-row">
+          <button id="testAgentMonitor" class="primary-action" type="button">测试监控接口</button>
+          <span id="agentTestResult" class="agent-test-result">尚未测试</span>
+        </div>
+      </section>
+    </div>
 
     <div id="loadingOverlay" class="loading-overlay" hidden>
       <div class="loading-panel">

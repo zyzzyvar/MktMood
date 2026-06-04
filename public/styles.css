@@ -28,7 +28,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -100,6 +101,32 @@ h3 {
 
 .icon-button:hover {
   border-color: var(--blue);
+}
+
+.primary-action,
+.small-button {
+  min-height: 38px;
+  border: 1px solid var(--blue);
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 820;
+  cursor: pointer;
+}
+
+.primary-action {
+  padding: 8px 13px;
+}
+
+.primary-action:hover,
+.small-button:hover {
+  background: #1d56bd;
+}
+
+.small-button {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 12px;
 }
 
 .refresh-icon {
@@ -367,7 +394,7 @@ h3 {
 .loading-overlay {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: 8;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -377,6 +404,147 @@ h3 {
 
 .loading-overlay[hidden] {
   display: none;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(23, 32, 42, 0.36);
+  backdrop-filter: blur(8px);
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.agent-modal {
+  width: min(920px, 100%);
+  max-height: min(86vh, 820px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 22px 70px rgba(18, 31, 46, 0.24);
+}
+
+.modal-head,
+.copy-head,
+.agent-test-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-head {
+  margin-bottom: 12px;
+}
+
+#agentModalClose {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.agent-intro {
+  margin-bottom: 16px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.agent-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.agent-controls label {
+  display: grid;
+  gap: 6px;
+}
+
+.agent-controls label span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.agent-controls select {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  color: var(--text);
+}
+
+.agent-output-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.agent-copy-panel {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.agent-url {
+  display: block;
+  margin-top: 10px;
+  padding: 10px;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+  background: #edf1f6;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.agent-copy-panel pre {
+  min-height: 220px;
+  max-height: 320px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #17202a;
+  color: #f4f7fb;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.52;
+}
+
+.agent-test-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.agent-test-result {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.agent-test-result.ok {
+  color: var(--green);
+}
+
+.agent-test-result.warning {
+  color: var(--amber);
+}
+
+.agent-test-result.error {
+  color: var(--red);
 }
 
 .loading-panel {
@@ -798,7 +966,8 @@ code {
   }
 
   .flag-strip,
-  .endpoint-grid {
+  .endpoint-grid,
+  .agent-controls {
     grid-template-columns: 1fr;
   }
 
@@ -823,7 +992,24 @@ code {
     width: 100%;
   }
 
+  .top-actions {
+    flex-wrap: wrap;
+  }
+
+  .primary-action {
+    flex: 1 1 150px;
+  }
+
   .layout {
+    padding: 16px;
+  }
+
+  .modal-overlay {
+    padding: 12px;
+  }
+
+  .agent-modal {
+    max-height: 92vh;
     padding: 16px;
   }
 
