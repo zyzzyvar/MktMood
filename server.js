@@ -493,13 +493,30 @@ const traditionalLeaderTags = {
 };
 
 const equityProfileOverrides = {
+  ABVX: { sectorLabel: "生物医药", industryLabel: "临床阶段生物科技", brief: "Abivax 是临床阶段生物科技公司，异动通常需要优先核对临床试验、监管进展、融资和药物安全性消息。" },
   FUTU: { sectorLabel: "金融", industryLabel: "互联网券商/财富管理", brief: "富途是面向个人投资者的互联网券商和财富管理平台，波动常反映中概金融科技与交易活跃度预期。" },
+  MMED: { sectorLabel: "医疗", industryLabel: "医疗设备/糖尿病管理", brief: "MiniMed 相关异动更适合作为医疗设备和糖尿病管理赛道线索，需核对产品审批、商业化和医保支付消息。" },
+  ONDS: { sectorLabel: "工业科技", industryLabel: "无线通信/无人系统", brief: "Ondas 业务与工业无线网络、无人系统和关键基础设施连接相关，异动需关注订单、政府/工业客户和融资节奏。" },
+  LUNR: { sectorLabel: "航天与卫星", industryLabel: "商业航天/月球任务", brief: "Intuitive Machines 是商业航天和月球任务公司，股价常受NASA合同、发射任务进展和项目里程碑驱动。" },
+  MLYS: { sectorLabel: "生物医药", industryLabel: "临床阶段生物科技", brief: "Mineralys Therapeutics 是临床阶段生物科技公司，异动重点核对临床数据、适应症进展、融资和并购传闻。" },
+  EOSE: { sectorLabel: "新能源", industryLabel: "储能电池", brief: "Eos Energy 是长时储能电池公司，异动常和储能订单、产能爬坡、融资能力及政策支持相关。" },
+  XNDU: { sectorLabel: "前沿科技", industryLabel: "量子计算", brief: "Xanadu Quantum 是量子计算公司，波动更多反映前沿科技题材、融资预期和风险偏好，而非稳定盈利定价。" },
+  INFQ: { sectorLabel: "前沿科技", industryLabel: "量子技术", brief: "Infleqtion 属于量子技术和精密传感方向，异动应重点核对政府合同、技术里程碑和题材资金热度。" },
+  SMR: { sectorLabel: "能源", industryLabel: "小型模块化核电", brief: "NuScale Power 是小型模块化核电公司，波动通常和项目审批、电力客户、监管进度及核能政策相关。" },
+  HAWK: { sectorLabel: "航天与卫星", industryLabel: "卫星数据/射频地理定位", brief: "HawkEye 360 属于卫星数据和射频地理定位方向，异动需核对政府订单、国防需求和发射/星座进展。" },
+  COMP: { sectorLabel: "房地产", industryLabel: "房地产经纪平台", brief: "Compass 是房地产经纪平台，异动通常受住房成交、按揭利率、佣金规则和房地产周期预期影响。" },
+  POET: { sectorLabel: "半导体/AI硬件", industryLabel: "光子芯片/光互连", brief: "POET Technologies 与光子集成和光互连相关，异动常指向AI数据中心互联、客户验证和商业化进展。" },
+  OKLO: { sectorLabel: "能源", industryLabel: "先进核能", brief: "Oklo 是先进核能公司，股价常受电力需求、数据中心用电、核能监管和项目商业化进度驱动。" },
+  FLNC: { sectorLabel: "新能源", industryLabel: "电网储能系统", brief: "Fluence Energy 是电网级储能系统公司，异动重点看储能订单、毛利率、项目交付和电网投资周期。" },
+  CRCL: { sectorLabel: "金融", industryLabel: "稳定币/加密支付", brief: "Circle Internet Group 与稳定币和加密支付基础设施相关，异动常反映监管、交易活跃度和数字资产风险偏好。" },
   NVTS: { sectorLabel: "半导体/AI硬件", industryLabel: "功率半导体", brief: "Navitas 是氮化镓和碳化硅功率芯片公司，常被用来观察AI电源、快充和电气化链条情绪。" },
+  PL: { sectorLabel: "航天与卫星", industryLabel: "地球观测/卫星影像", brief: "Planet Labs 提供地球观测和卫星影像数据，异动常和政府/企业数据需求、卫星部署和订阅收入相关。" },
   RGTI: { sectorLabel: "前沿科技", industryLabel: "量子计算", brief: "Rigetti 是量子计算硬件和云服务公司，股价更容易受前沿科技题材和风险偏好驱动。" },
   BB: { sectorLabel: "企业软件", industryLabel: "网络安全/车载软件", brief: "BlackBerry 已转型为网络安全和车载软件公司，异动通常需要关注软件业务、授权收入和事件催化。" },
   DELL: { sectorLabel: "企业硬件/PC", industryLabel: "服务器/存储/PC", brief: "Dell 是企业服务器、存储和PC硬件龙头，异动常指向AI服务器需求、企业IT预算和硬件利润率。" },
   HPQ: { sectorLabel: "企业硬件/PC", industryLabel: "PC/打印机", brief: "HP 是PC与打印机硬件公司，波动主要对应终端更新周期、企业采购和耗材利润。" },
-  F: { sectorLabel: "汽车", industryLabel: "整车制造", brief: "Ford 是美国传统汽车龙头，异动通常关联销量、价格战、电动车投入和汽车信贷环境。" }
+  F: { sectorLabel: "汽车", industryLabel: "整车制造", brief: "Ford 是美国传统汽车龙头，异动通常关联销量、价格战、电动车投入和汽车信贷环境。" },
+  TPL: { sectorLabel: "能源/地产权益", industryLabel: "土地权益/油气特许权", brief: "Texas Pacific Land 持有土地和油气相关权益，异动常与油气活动、特许权收入和能源资本开支有关。" }
 };
 
 app.use(express.json());
@@ -1078,10 +1095,10 @@ function classifyEquityAnomaly(symbol, name, marketCap) {
   }
   if ((marketCap || 0) >= 200_000_000_000) return { label: "超大市值龙头", isTraditionalLeader: false };
   if ((marketCap || 0) >= 50_000_000_000) return { label: "大型行业代表", isTraditionalLeader: false };
-  if (/holdings|systems|semiconductor|energy|bank|pharma|retail|software/i.test(name)) {
+  if (/holdings|systems|semiconductor|energy|bank|pharma|retail|software|therapeutics|quantum|space|labs|power|nuclear/i.test(name)) {
     return { label: "行业代表公司", isTraditionalLeader: false };
   }
-  return { label: "高波动个股", isTraditionalLeader: false };
+  return { label: "待识别事件驱动股", isTraditionalLeader: false };
 }
 
 function buildEquityClassificationLabel(classification, sectorLabel, industryLabel) {
@@ -1091,7 +1108,7 @@ function buildEquityClassificationLabel(classification, sectorLabel, industryLab
   if (classification.label === "超大市值龙头") return `${specific}超大市值龙头`;
   if (classification.label === "大型行业代表") return `${specific}大型代表`;
   if (classification.label === "行业代表公司") return `${specific}代表公司`;
-  if (classification.label === "高波动个股") return `${specific}高波动股`;
+  if (classification.label === "高波动个股" || classification.label === "待识别事件驱动股") return `${specific}高波动股`;
   return `${specific}${classification.label}`;
 }
 
@@ -1151,9 +1168,16 @@ function inferSectorLabel(symbol, name, industry = "", sector = "") {
   const sourceSector = String(sector || "").trim();
   if (sourceSector) return translateSector(sourceSector);
   const text = `${symbol} ${name} ${industry}`.toLowerCase();
+  if (/therapeutics|biotech|biopharma|pharmaceutical|oncology|immunology|genetic|gene therapy|abivax|mineralys/.test(text)) return "生物医药";
+  if (/minimed|diabetes|medical device|medtech|surgical|diagnostic/.test(text)) return "医疗";
+  if (/space|satellite|aerospace|planet labs|intuitive machines|hawkeye|lunar|rocket|orbital/.test(text)) return "航天与卫星";
+  if (/quantum|rigetti|xanadu|infleqtion/.test(text)) return "前沿科技";
+  if (/nuclear|nuscale|oklo|reactor|uranium|smr/.test(text)) return "能源";
+  if (/battery|storage|fluence|eos energy|grid|solar|renewable/.test(text)) return "新能源";
+  if (/stablecoin|crypto|bitcoin|blockchain|circle internet|coinbase|digital asset/.test(text)) return "金融";
+  if (/real estate|realty|reit|property|land corporation|compass/.test(text)) return "房地产";
   if (/semiconductor|chip|nvidia|intel|amd|marvell|cerebras|navitas/.test(text)) return "半导体/AI硬件";
   if (/dell|hp inc|hewlett|pc|hardware/.test(text)) return "企业硬件/PC";
-  if (/quantum|rigetti/.test(text)) return "前沿科技";
   if (/software|oracle|salesforce|snowflake|zscaler|blackberry|cybersecurity/.test(text)) return "企业软件";
   if (/bank|financial|capital|holdings|broker|wealth|futu/.test(text)) return "金融";
   if (/energy|oil|solar|fervo/.test(text)) return "能源";
@@ -1168,9 +1192,23 @@ function inferIndustryLabel(symbol, name, industry = "", sector = "", sectorLabe
   const sourceIndustry = String(industry || "").trim();
   if (sourceIndustry) return translateIndustry(sourceIndustry);
   const text = `${symbol} ${name} ${sector}`.toLowerCase();
+  if (/therapeutics|biotech|biopharma|oncology|immunology|abivax|mineralys/.test(text)) return "临床阶段生物科技";
+  if (/minimed|diabetes/.test(text)) return "医疗设备/糖尿病管理";
+  if (/intuitive machines|lunar|moon/.test(text)) return "商业航天/月球任务";
+  if (/planet labs|satellite image|earth observation/.test(text)) return "地球观测/卫星影像";
+  if (/hawkeye|radio frequency|geolocation/.test(text)) return "卫星数据/射频地理定位";
+  if (/xanadu|rigetti|quantum computing/.test(text)) return "量子计算";
+  if (/infleqtion|quantum/.test(text)) return "量子技术";
+  if (/nuscale|small modular|smr/.test(text)) return "小型模块化核电";
+  if (/oklo|reactor|advanced nuclear/.test(text)) return "先进核能";
+  if (/eos energy|fluence|battery|storage|grid/.test(text)) return "储能系统";
+  if (/circle internet|stablecoin|crypto|digital asset/.test(text)) return "稳定币/加密支付";
+  if (/compass|real estate broker|realty/.test(text)) return "房地产经纪平台";
+  if (/land corporation|royalty|mineral rights/.test(text)) return "土地权益/油气特许权";
+  if (/ondas|wireless|drone|autonomous/.test(text)) return "无线通信/无人系统";
+  if (/poet|photonics|optical interconnect/.test(text)) return "光子芯片/光互连";
   if (/navitas|power|gan|silicon carbide/.test(text)) return "功率半导体";
   if (/semiconductor|chip/.test(text)) return "半导体";
-  if (/quantum|rigetti/.test(text)) return "量子计算";
   if (/blackberry|cyber/.test(text)) return "网络安全/车载软件";
   if (/futu|broker|wealth/.test(text)) return "互联网券商/财富管理";
   if (/bank/.test(text)) return "银行";
@@ -1227,7 +1265,7 @@ function buildCompanyBrief(symbol, name, classification, marketLabel, sectorLabe
   if (sectorLabel !== "未分类") {
     return `${name} 是${marketLabel}中的${industryLabel || sectorLabel}相关公司，适合作为${sectorLabel}风险偏好和事件催化的观察样本。`;
   }
-  return `${name} 是${marketLabel}中的高波动个股，行业信息暂不充分，优先作为资金异动线索而非直接交易结论。`;
+  return `${name} 的行业画像暂未确认，本轮只说明资金波动异常。优先核验公司主营、公告/财报/融资/并购传闻和成交量来源，不要把它直接等同于可交易机会。`;
 }
 
 function buildEquityAnomalyExplanation(symbol, changePct, classification, marketLabel, sectorLabel, industryLabel, abnormalMoveRatio, volumeRatio) {
@@ -1239,6 +1277,9 @@ function buildEquityAnomalyExplanation(symbol, changePct, classification, market
     : "";
   const vol = abnormalMoveRatio ? `，约为自身常态日波动的 ${round(abnormalMoveRatio, 1)} 倍` : "";
   const volume = volumeRatio ? `，成交量约为近期均量 ${round(volumeRatio, 1)} 倍` : "";
+  if (sectorLabel === "未分类" || industryLabel === "行业待确认") {
+    return `${symbol} 单日${move} ${Math.abs(round(changePct, 2))}%${vol}${volume}，行业画像暂未确认；先把它当作事件驱动或流动性异动线索，优先核验主营业务、公告新闻和成交量来源。`;
+  }
   return `${symbol} 单日${move} ${Math.abs(round(changePct, 2))}%${vol}${volume}，属于${marketLabel}，归类为${classification.label}/${sectorLabel}/${industryLabel}${leader}。`;
 }
 
