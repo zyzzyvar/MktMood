@@ -252,6 +252,28 @@ async function createSchema(activePool) {
     CREATE INDEX IF NOT EXISTS sector_move_lookup_idx
       ON ${qn("sector_move_observations")} (observed_at DESC, symbol)
   `);
+  await activePool.query(`
+    CREATE TABLE IF NOT EXISTS ${qn("market_structure_observations")} (
+      id bigserial PRIMARY KEY,
+      run_id text NOT NULL REFERENCES ${qn("ingestion_runs")}(run_id) ON DELETE CASCADE,
+      observed_at timestamptz NOT NULL,
+      diagnosis_type text,
+      diagnosis_label text,
+      diagnosis_confidence numeric,
+      fragility_level text,
+      bottom_stage integer,
+      bottom_label text,
+      bottom_blocked boolean,
+      confirmations_met integer,
+      confirmations_available integer,
+      raw jsonb NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await activePool.query(`
+    CREATE INDEX IF NOT EXISTS market_structure_lookup_idx
+      ON ${qn("market_structure_observations")} (observed_at DESC, bottom_stage)
+  `);
 }
 
 async function persistSnapshot(snapshot) {
@@ -291,6 +313,9 @@ async function persistSnapshot(snapshot) {
       for (const move of snapshot.anomalyRadar?.sectorMoves || []) {
         await insertSectorMove(client, runId, observedAt, move);
       }
+      if (snapshot.marketStructure) {
+        await insertMarketStructure(client, runId, observedAt, snapshot.marketStructure);
+      }
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -303,6 +328,29 @@ async function persistSnapshot(snapshot) {
     dbStatus = { ...dbStatus, ok: false, lastError: error.message };
   }
   return dbStatus;
+}
+
+async function insertMarketStructure(client, runId, observedAt, structure) {
+  await client.query(
+    `INSERT INTO ${qn("market_structure_observations")}
+      (run_id, observed_at, diagnosis_type, diagnosis_label, diagnosis_confidence, fragility_level,
+       bottom_stage, bottom_label, bottom_blocked, confirmations_met, confirmations_available, raw)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`,
+    [
+      runId,
+      observedAt,
+      structure.diagnosis?.type,
+      structure.diagnosis?.label,
+      toNumber(structure.diagnosis?.confidence),
+      structure.fragility?.level,
+      Number.isFinite(Number(structure.bottom?.stage)) ? Number(structure.bottom.stage) : null,
+      structure.bottom?.label,
+      Boolean(structure.bottom?.blocked),
+      Number.isFinite(Number(structure.bottom?.metCount)) ? Number(structure.bottom.metCount) : null,
+      Number.isFinite(Number(structure.bottom?.availableCount)) ? Number(structure.bottom.availableCount) : null,
+      JSON.stringify(structure)
+    ]
+  );
 }
 
 async function insertEquityAnomaly(client, runId, observedAt, anomaly) {
@@ -615,6 +663,8 @@ function trimSnapshot(snapshot) {
     flags: snapshot.flags,
     dimensions: snapshot.dimensions,
     frameworks: snapshot.frameworks,
+    marketStructure: snapshot.marketStructure,
+    marketStructureSources: snapshot.marketStructureSources,
     api: snapshot.api
   };
 }

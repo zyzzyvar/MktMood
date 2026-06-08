@@ -236,6 +236,22 @@ GET /api/agent/context?framework=liquidity-risk
 
 返回适合 Agent 消化的紧凑上下文。
 
+### Market Structure
+
+```http
+GET /api/market-structure
+GET /api/agent/context?framework=deleveraging-bottom
+```
+
+“机械去杠杆与触底确认”不是一个静态情绪分数，而是一套状态机：
+
+- **下跌性质**：区分偏机械去杠杆、偏基本面冲击、混合型压力或数据不足。
+- **脆弱度背景**：观察 FINRA 融资余额、加密杠杆和保护不足等背景风险。
+- **触底确认**：检查 VIX 期限结构、BTC 资金费率与持仓量、CTA 代理、相关性与市场宽度。
+- **否决条件**：信用继续恶化、恐慌扩散或美元与利率同步收紧时，不输出积极触底结论。
+
+做市商 Gamma 和大型融资日历目前明确标记为“待接入”，不会用零值或无法验证的精确数字参与评分。
+
 ### Hermes Monitor
 
 ```http
@@ -277,6 +293,7 @@ curl "http://127.0.0.1:3000/api/hermes/monitor?minSeverity=medium&limit=10"
 - `mktmood.event_observations`：宏观和财报事件观察，用于追踪预测修正。
 - `mktmood.equity_anomaly_observations`：个股异动记录。
 - `mktmood.sector_move_observations`：行业和板块异动记录。
+- `mktmood.market_structure_observations`：每轮下跌性质、脆弱度、触底阶段和否决条件。
 
 数据库带来的价值不是“存一下而已”，而是让看板拥有记忆：
 
@@ -293,6 +310,11 @@ V1.0 使用公开数据源组合：
 - CNN Fear & Greed：风险偏好。
 - Trading Economics：经济日历。
 - Nasdaq：财报日历、EPS 共识，以及 Yahoo 个股/行业异动不可用时的备用 screener。
+- Cboe：VIX 与 VIX3M 官方日线，用于判断波动率期限结构。
+- OKX：BTC 永续资金费率和未平仓量，用于观察加密杠杆清理。
+- FINRA：月度融资余额，用于判断市场杠杆脆弱度，不用于精确择时。
+
+CTA 指标是 MktMood 的透明代理模型：比较标普、纳指和罗素指数与 20/50 日均线的位置，并对高实现波动率施加减仓惩罚。它不会冒充投行内部的真实 CTA 资金流。
 
 公开数据源偶尔会超时或变更页面结构。MktMood 会尽量降级处理，保留可用部分，并在接口中标记 source status。
 

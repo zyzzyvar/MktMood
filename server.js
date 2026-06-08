@@ -13,6 +13,12 @@ const {
   eventKey
 } = require("./db");
 const { findMacroEventPlaybook, genericMacroEventPlaybook } = require("./playbooks");
+const {
+  fetchDeleveragingIndicators,
+  buildStructureIndicators,
+  buildDeleveragingAnalysis,
+  buildDeleveragingFramework
+} = require("./deleveraging");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -576,6 +582,16 @@ app.get("/api/anomalies", async (_req, res) => {
   });
 });
 
+app.get("/api/market-structure", async (_req, res) => {
+  const snapshot = await getSnapshot();
+  res.json({
+    updatedAt: snapshot.updatedAt,
+    marketStructure: snapshot.marketStructure,
+    sourceStatus: snapshot.marketStructureSources,
+    storage: snapshot.storage
+  });
+});
+
 app.get("/api/history/indicators/:id", async (req, res) => {
   const id = String(req.params.id);
   const limit = Number(req.query.limit || 200);
@@ -662,6 +678,7 @@ app.get("/api/agent/context", async (req, res) => {
       equityAnomalies: (snapshot.anomalyRadar?.equityAnomalies || []).slice(0, 12),
       sectorMoves: (snapshot.anomalyRadar?.sectorMoves || []).slice(0, 8)
     },
+    marketStructure: snapshot.marketStructure,
     storage: snapshot.storage,
     staleOrMissing: snapshot.indicators
       .filter((item) => item.status !== "ok")
@@ -697,13 +714,24 @@ async function getSnapshot() {
 }
 
 async function buildSnapshot() {
-  const [yahooData, fredData, ratioData, sentimentData] = await Promise.all([
+  const [yahooData, fredData, ratioData, sentimentData, deleveragingData] = await Promise.all([
     fetchYahooIndicators(),
     fetchFredIndicators(),
     fetchRatioIndicators(),
-    fetchSentimentIndicators()
+    fetchSentimentIndicators(),
+    fetchDeleveragingIndicators()
   ]);
-  const indicators = await applyIndicatorFallbacks([...yahooData, ...fredData, ...ratioData, ...sentimentData]);
+  const sourceIndicators = await applyIndicatorFallbacks([
+    ...yahooData,
+    ...fredData,
+    ...ratioData,
+    ...sentimentData,
+    ...deleveragingData.indicators
+  ]);
+  const indicators = await applyIndicatorFallbacks([
+    ...sourceIndicators,
+    ...buildStructureIndicators(sourceIndicators)
+  ]);
   indicators.sort((a, b) => {
     if (a.status !== b.status) return indicatorStatusRank(a.status) - indicatorStatusRank(b.status);
     return Math.abs(b.score || 0) - Math.abs(a.score || 0);
@@ -714,7 +742,11 @@ async function buildSnapshot() {
   applyDatabaseSignals(indicators, databaseInsights.indicatorSignals);
 
   const dimensions = buildDimensions(indicators);
-  const frameworks = frameworkVersions.map((framework) => synthesizeFramework(framework, indicators, dimensions));
+  const marketStructure = buildDeleveragingAnalysis(indicators);
+  const frameworks = [
+    ...frameworkVersions.map((framework) => synthesizeFramework(framework, indicators, dimensions)),
+    buildDeleveragingFramework(marketStructure)
+  ];
   const marketScore = weightedAverage(indicators.filter((item) => item.status === "ok"), "score");
   const regime = classifyRegime(marketScore, indicators);
   const flags = buildFlags(indicators, marketScore, anomalyRadar);
@@ -726,6 +758,8 @@ async function buildSnapshot() {
     flags,
     upcomingEvents,
     anomalyRadar,
+    marketStructure,
+    marketStructureSources: deleveragingData.sourceStatus,
     databaseInsights,
     dimensions,
     indicators,
@@ -735,6 +769,7 @@ async function buildSnapshot() {
       frameworks: "/api/frameworks",
       events: "/api/events",
       anomalies: "/api/anomalies",
+      marketStructure: "/api/market-structure",
       eventRevisions: "/api/events/revisions",
       indicatorHistory: "/api/history/indicators/spx",
       eventHistory: "/api/history/events/{eventKey}",
@@ -1608,6 +1643,30 @@ function buildHermesAlerts(snapshot) {
       detail: snapshot.storage.lastError || "storage.ok=false",
       actionHint: "检查 PostgreSQL 连接、pg_hba.conf、PGSSL 和 PM2 环境变量。",
       dedupeKey: `system:storage:${day}`
+    });
+  }
+
+  const structure = snapshot.marketStructure;
+  if (structure?.diagnosis?.type === "mechanical" && structure.diagnosis.confidence >= 0.4 && structure.bottom?.stage <= 1) {
+    alerts.push({
+      type: "deleveraging_active",
+      severity: "high",
+      title: "机械去杠杆压力仍在",
+      detail: structure.diagnosis.summary,
+      actionHint: structure.bottom.action,
+      dedupeKey: `market-structure:deleveraging:${structure.bottom.stage}:${day}`,
+      payload: structure
+    });
+  }
+  if (structure?.bottom?.stage >= 3) {
+    alerts.push({
+      type: "bottom_confirmation",
+      severity: "high",
+      title: structure.bottom.label,
+      detail: `${structure.bottom.metCount}/${structure.bottom.totalCount}项触底条件成立。${structure.diagnosis.summary}`,
+      actionHint: structure.bottom.action,
+      dedupeKey: `market-structure:bottom:${structure.bottom.stage}:${structure.bottom.blocked}:${day}`,
+      payload: structure
     });
   }
 

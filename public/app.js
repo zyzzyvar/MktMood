@@ -523,6 +523,10 @@ function renderFrameworkTabs(frameworks) {
 
 function renderFrameworkPanel(frameworks) {
   const framework = frameworks.find((item) => item.id === state.selectedFramework) || frameworks[0];
+  if (framework.kind === "deleveraging" && framework.structure) {
+    els.frameworkPanel.innerHTML = renderDeleveragingFramework(framework);
+    return;
+  }
   const drivers = [...framework.supports, ...framework.pressures].slice(0, 5);
   els.frameworkPanel.innerHTML = `
     <div class="framework-summary">
@@ -540,6 +544,80 @@ function renderFrameworkPanel(frameworks) {
       <div class="driver-list">
         ${drivers.map(renderDriver).join("") || `<div class="driver"><span>暂无显著驱动。</span></div>`}
       </div>
+    </div>
+  `;
+}
+
+function renderDeleveragingFramework(framework) {
+  const structure = framework.structure;
+  const diagnosis = structure.diagnosis;
+  const bottom = structure.bottom;
+  const fragility = structure.fragility;
+  const evidence = [
+    ...diagnosis.mechanicalEvidence.map((item) => ({ ...item, type: "mechanical" })),
+    ...diagnosis.fundamentalEvidence.map((item) => ({ ...item, type: "fundamental" }))
+  ];
+  return `
+    <div class="structure-overview">
+      <div class="structure-head">
+        <div>
+          <span class="pill ${framework.state}">${escapeHtml(framework.stateLabel)} ${formatScore(framework.score)}</span>
+          <h3>${escapeHtml(framework.name)}</h3>
+        </div>
+        <div class="structure-stage ${bottom.blocked ? "blocked" : ""}">
+          <span>触底阶段 ${escapeHtml(String(bottom.stage))}/4</span>
+          <strong>${escapeHtml(bottom.label)}</strong>
+        </div>
+      </div>
+      <p>${escapeHtml(diagnosis.summary)}</p>
+      <p class="structure-action">${escapeHtml(bottom.action)}</p>
+      <div class="structure-metrics">
+        <div><span>下跌性质</span><strong>${escapeHtml(diagnosis.label)}</strong></div>
+        <div><span>判断置信度</span><strong>${formatPercent(diagnosis.confidence * 100)}</strong></div>
+        <div><span>市场脆弱度</span><strong>${escapeHtml(fragility.label)}</strong></div>
+        <div><span>确认条件</span><strong>${bottom.metCount}/${bottom.totalCount}</strong></div>
+      </div>
+    </div>
+    <div class="structure-details">
+      <section>
+        <h3>触底确认清单</h3>
+        <div class="confirmation-list">
+          ${bottom.confirmations.map((item) => `
+            <div class="confirmation-row ${item.status !== "ok" ? "unavailable" : item.met ? "met" : "waiting"}">
+              <span class="confirmation-mark">${item.status !== "ok" ? "?" : item.met ? "✓" : "·"}</span>
+              <div>
+                <strong>${escapeHtml(item.label)}</strong>
+                <span>${escapeHtml(item.detail)}</span>
+              </div>
+              <small>${escapeHtml(item.status !== "ok" ? item.quality : item.met ? "已满足" : "等待确认")}</small>
+            </div>
+          `).join("")}
+        </div>
+      </section>
+      <section>
+        <h3>诊断证据与脆弱度</h3>
+        <div class="evidence-list">
+          ${evidence.map((item) => `
+            <div class="evidence-row ${item.type}">
+              <strong>${escapeHtml(item.label)}</strong>
+              <span>${escapeHtml(item.detail)}</span>
+            </div>
+          `).join("") || `<div class="evidence-row"><span>当前没有足够的方向性证据。</span></div>`}
+          ${fragility.items.map((item) => `
+            <div class="evidence-row fragility">
+              <strong>${escapeHtml(item.label)} · ${escapeHtml(item.value)}</strong>
+              <span>${escapeHtml(item.detail)}</span>
+            </div>
+          `).join("")}
+        </div>
+        ${bottom.vetoes.length ? `
+          <div class="veto-panel">
+            <strong>当前否决条件</strong>
+            ${bottom.vetoes.map((item) => `<span>${escapeHtml(item.label)}：${escapeHtml(item.detail)}</span>`).join("")}
+          </div>
+        ` : ""}
+        <p class="quality-note">${escapeHtml(structure.dataQuality.note)}</p>
+      </section>
     </div>
   `;
 }
@@ -688,6 +766,11 @@ function formatDateTime(value) {
 function formatScore(value) {
   if (!Number.isFinite(Number(value))) return "--";
   return Number(value).toFixed(2);
+}
+
+function formatPercent(value) {
+  if (!Number.isFinite(Number(value))) return "--";
+  return `${Number(value).toFixed(0)}%`;
 }
 
 function formatNumber(value) {
