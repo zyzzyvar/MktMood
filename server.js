@@ -654,6 +654,7 @@ app.get("/api/agent/context", async (req, res) => {
     framework: selected,
     marketScore: snapshot.marketScore,
     regime: snapshot.regime,
+    riskRegime: snapshot.riskRegime,
     flags: snapshot.flags,
     topSupports: snapshot.indicators.filter((item) => item.state === "supportive").slice(0, 5),
     topPressures: snapshot.indicators.filter((item) => item.state === "pressure").slice(0, 5),
@@ -748,13 +749,21 @@ async function buildSnapshot() {
     buildDeleveragingFramework(marketStructure)
   ];
   const marketScore = weightedAverage(indicators.filter((item) => item.status === "ok"), "score");
-  const regime = classifyRegime(marketScore, indicators);
-  const flags = buildFlags(indicators, marketScore, anomalyRadar);
+  const riskRegime = classifyRiskRegime({
+    indicators,
+    marketScore,
+    anomalyRadar,
+    marketStructure,
+    databaseInsights
+  });
+  const regime = classifyRegime(marketScore, indicators, riskRegime);
+  const flags = buildFlags(indicators, marketScore, anomalyRadar, riskRegime);
 
   const data = {
     updatedAt: new Date().toISOString(),
     marketScore: round(marketScore, 2),
     regime,
+    riskRegime,
     flags,
     upcomingEvents,
     anomalyRadar,
@@ -1766,11 +1775,11 @@ function buildHermesAlerts(snapshot) {
 
 function buildHermesTelegramText(snapshot, alerts) {
   if (!alerts.length) {
-    return `MktMood ${formatTelegramTime(snapshot.updatedAt)}\n暂无达到通知阈值的特别事项。\n市场状态：${snapshot.regime?.name || "未知"}，综合分 ${snapshot.marketScore}`;
+    return `MktMood ${formatTelegramTime(snapshot.updatedAt)}\n暂无达到通知阈值的特别事项。\n市场状态：${snapshot.regime?.name || "未知"} / ${snapshot.riskRegime?.name || "风险状态未知"}，综合分 ${snapshot.marketScore}，风险温度 ${snapshot.riskRegime?.score ?? "--"}`;
   }
   const lines = [
     `MktMood Alert ${formatTelegramTime(snapshot.updatedAt)}`,
-    `市场状态：${snapshot.regime?.name || "未知"}，综合分 ${snapshot.marketScore}`,
+    `市场状态：${snapshot.regime?.name || "未知"} / ${snapshot.riskRegime?.name || "风险状态未知"}，综合分 ${snapshot.marketScore}，风险温度 ${snapshot.riskRegime?.score ?? "--"}`,
     ""
   ];
   alerts.forEach((alert, index) => {
@@ -2742,9 +2751,109 @@ function tacticalSuggestion(id, score) {
   return "中性环境，适合用网格、分批和事件触发规则，避免单一指标驱动交易。";
 }
 
-function buildFlags(indicators, marketScore, anomalyRadar = null) {
+function classifyRiskRegime({ indicators, anomalyRadar = null, marketStructure = null, databaseInsights = null }) {
+  const byId = Object.fromEntries(indicators.map((item) => [item.id, item]));
+  const reasons = [];
+  let score = 0;
+  const add = (points, label, detail, level = "warning") => {
+    if (points <= 0) return;
+    score += points;
+    reasons.push({ label, detail, points, level });
+  };
+
+  const vix = Number(byId.vix?.value);
+  if (Number.isFinite(vix)) {
+    if (vix >= 30) add(30, "VIX极端升温", `VIX为${round(vix, 2)}，恐慌和保护需求处在高压区。`, "danger");
+    else if (vix >= 25) add(22, "VIX高位", `VIX为${round(vix, 2)}，短线波动风险偏高。`, "danger");
+    else if (vix >= 20) add(14, "VIX升温", `VIX为${round(vix, 2)}，市场仍在给风险重新定价。`);
+    else if (vix >= 16) add(6, "VIX未回到平静区", `VIX为${round(vix, 2)}，虽然不极端，但仍高于平静区。`, "neutral");
+  }
+
+  const vixTerm = Number(byId.vix_term_spread?.value);
+  if (Number.isFinite(vixTerm)) {
+    if (vixTerm <= -2) add(22, "VIX期限结构深度倒挂", `VIX3M-VIX为${round(vixTerm, 2)}，短端恐慌明显压过中期波动率。`, "danger");
+    else if (vixTerm <= 0) add(14, "VIX期限结构倒挂", `VIX3M-VIX为${round(vixTerm, 2)}，短期压力尚未解除。`);
+  }
+
+  const correlation = Number(byId.cross_asset_correlation?.value);
+  if (Number.isFinite(correlation)) {
+    if (correlation >= 0.85) add(18, "指数相关性过高", `主要指数10日相关性为${round(correlation, 2)}，仍有无差别交易特征。`);
+    else if (correlation >= 0.72) add(10, "指数相关性偏高", `主要指数10日相关性为${round(correlation, 2)}，差异化定价尚不充分。`, "neutral");
+  }
+
+  const highEquityAnomalies = (anomalyRadar?.equityAnomalies || [])
+    .filter((item) => item.status === "ok" && item.severity === "high").length;
+  const highSectorMoves = (anomalyRadar?.sectorMoves || [])
+    .filter((item) => item.status === "ok" && item.severity === "high").length;
+  if (highEquityAnomalies >= 20) add(18, "个股异常波动密集", `全市场高优先级个股异动${highEquityAnomalies}个。`);
+  else if (highEquityAnomalies >= 8) add(10, "个股异动增加", `全市场高优先级个股异动${highEquityAnomalies}个。`, "neutral");
+  if (highSectorMoves >= 2) add(12, "板块共振波动", `高优先级板块异动${highSectorMoves}个，说明波动不只停留在单只股票。`);
+  else if (highSectorMoves === 1) add(6, "单一板块异动", "有一个板块达到高优先级异常波动。", "neutral");
+
+  const signalCount = (databaseInsights?.indicatorSignals || [])
+    .filter((item) => item.severity === "high" || item.type === "breakout").length;
+  if (signalCount >= 5) add(14, "指标突破密集", `本轮落库识别到${signalCount}个突破/高优先级指标信号。`);
+  else if (signalCount >= 2) add(8, "指标突破增加", `本轮落库识别到${signalCount}个突破/高优先级指标信号。`, "neutral");
+
+  const structure = marketStructure || {};
+  if (structure.diagnosis?.type === "mechanical") {
+    const stage = Number(structure.bottom?.stage);
+    if (stage <= 1) add(26, "机械去杠杆仍在进行", structure.diagnosis.summary, "danger");
+    else if (stage === 2) add(18, "机械去杠杆早期稳定", structure.diagnosis.summary);
+    else if (stage >= 3) add(12, "机械去杠杆进入修复确认", structure.diagnosis.summary, "neutral");
+  }
+  if (structure.bottom?.blocked) {
+    add(12, "触底确认存在否决项", structure.bottom.action || "仍有关键风险项未解除。", "danger");
+  }
+  if (structure.fragility?.level === "high") add(16, "市场脆弱度高", structure.fragility.label, "danger");
+  else if (structure.fragility?.level === "medium") add(9, "市场脆弱度中等", structure.fragility.label, "neutral");
+
+  score = clamp(score, 0, 100);
+  const stage = Number(structure.bottom?.stage);
+  let name = "平静观察";
+  let level = "calm";
+  let description = "方向和波动风险都没有进入极端区，按计划交易即可。";
+  if (structure.diagnosis?.type === "mechanical" && stage >= 3 && score >= 35) {
+    name = "高波动修复期";
+    level = "repair";
+    description = "市场方向可能修复，但异常波动、相关性或杠杆脆弱度仍高；适合分批验证，不适合把反弹等同于全面安全。";
+  } else if (structure.diagnosis?.type === "mechanical" && stage <= 1 && score >= 35) {
+    name = "机械去杠杆压力期";
+    level = "danger";
+    description = "机械卖压和无差别交易仍在，低吸需要等待更多触底确认。";
+  } else if (score >= 65) {
+    name = "高波动风险期";
+    level = "danger";
+    description = "多个风险温度信号同时升高，仓位、止损和事件暴露要更保守。";
+  } else if (score >= 38) {
+    name = "高波动观察期";
+    level = "warning";
+    description = "市场不一定单边偏空，但波动和异常信号已经足够密集，需要降低追涨杀跌。";
+  } else if (score >= 22) {
+    name = "波动升温";
+    level = "watch";
+    description = "风险温度开始抬升，注意关键指标是否进一步共振。";
+  }
+
+  return {
+    name,
+    level,
+    score: round(score, 0),
+    description,
+    reasons: reasons.sort((a, b) => b.points - a.points).slice(0, 6)
+  };
+}
+
+function buildFlags(indicators, marketScore, anomalyRadar = null, riskRegime = null) {
   const byId = Object.fromEntries(indicators.map((item) => [item.id, item]));
   const flags = [];
+  if (riskRegime && riskRegime.level !== "calm") {
+    flags.push({
+      level: riskRegime.level === "danger" ? "danger" : "warning",
+      title: riskRegime.name,
+      detail: riskRegime.description
+    });
+  }
   const leaderAlerts = anomalyRadar?.legacyLeaderAlerts || [];
   if (leaderAlerts.length) {
     const top = leaderAlerts[0];
@@ -2797,12 +2906,13 @@ function signalFlagLevel(item, signal) {
   return "good";
 }
 
-function classifyRegime(score) {
-  if (score >= 0.45) return { name: "进攻", description: "风险偏好和趋势信号占优，适合顺势但不适合无纪律追高。" };
-  if (score >= 0.15) return { name: "温和偏暖", description: "整体环境可交易，但仍要观察利率、美元和波动率是否反向。" };
-  if (score <= -0.45) return { name: "防守", description: "系统性压力较大，优先保护本金和等待错杀机会。" };
-  if (score <= -0.15) return { name: "温和偏冷", description: "短线胜率下降，适合降低仓位或只做确定性更高的回踩。" };
-  return { name: "中性拉扯", description: "多空信号交错，适合依赖计划交易和个股级别催化。" };
+function classifyRegime(score, _indicators, riskRegime = null) {
+  const riskText = riskRegime && riskRegime.level !== "calm" ? `；风险状态：${riskRegime.name}` : "";
+  if (score >= 0.45) return { name: "进攻", description: `风险偏好和趋势信号占优，适合顺势但不适合无纪律追高${riskText}。` };
+  if (score >= 0.15) return { name: "温和偏暖", description: `整体环境可交易，但仍要观察利率、美元和波动率是否反向${riskText}。` };
+  if (score <= -0.45) return { name: "防守", description: `系统性压力较大，优先保护本金和等待错杀机会${riskText}。` };
+  if (score <= -0.15) return { name: "温和偏冷", description: `短线胜率下降，适合降低仓位或只做确定性更高的回踩${riskText}。` };
+  return { name: "中性拉扯", description: `方向分数多空抵消，不代表市场平静；更适合依赖计划交易和个股级别催化${riskText}。` };
 }
 
 function parseFredCsv(text, column) {

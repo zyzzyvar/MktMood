@@ -226,6 +226,45 @@ h3 {
   line-height: 1.55;
 }
 
+.risk-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.risk-status span,
+.risk-status small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.risk-status strong {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef3f8;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.risk-status.watch strong {
+  background: #fff5df;
+  color: var(--amber);
+}
+
+.risk-status.warning strong,
+.risk-status.repair strong {
+  background: #fff0d4;
+  color: #9a6500;
+}
+
+.risk-status.danger strong {
+  background: #faeaea;
+  color: var(--red);
+}
+
 .flag-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

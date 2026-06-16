@@ -82,11 +82,19 @@ async function createSchema(activePool) {
       market_score numeric,
       regime_name text,
       regime_description text,
+      risk_regime_name text,
+      risk_regime_level text,
+      risk_regime_score numeric,
+      risk_regime_description text,
       source_status jsonb NOT NULL DEFAULT '{}'::jsonb,
       raw_snapshot jsonb NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     )
   `);
+  await activePool.query(`ALTER TABLE ${qn("ingestion_runs")} ADD COLUMN IF NOT EXISTS risk_regime_name text`);
+  await activePool.query(`ALTER TABLE ${qn("ingestion_runs")} ADD COLUMN IF NOT EXISTS risk_regime_level text`);
+  await activePool.query(`ALTER TABLE ${qn("ingestion_runs")} ADD COLUMN IF NOT EXISTS risk_regime_score numeric`);
+  await activePool.query(`ALTER TABLE ${qn("ingestion_runs")} ADD COLUMN IF NOT EXISTS risk_regime_description text`);
   await activePool.query(`
     CREATE TABLE IF NOT EXISTS ${qn("indicator_observations")} (
       id bigserial PRIMARY KEY,
@@ -289,14 +297,20 @@ async function persistSnapshot(snapshot) {
       await client.query("BEGIN");
       await client.query(
         `INSERT INTO ${qn("ingestion_runs")}
-          (run_id, observed_at, market_score, regime_name, regime_description, source_status, raw_snapshot)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)`,
+          (run_id, observed_at, market_score, regime_name, regime_description,
+           risk_regime_name, risk_regime_level, risk_regime_score, risk_regime_description,
+           source_status, raw_snapshot)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb)`,
         [
           runId,
           observedAt,
           toNumber(snapshot.marketScore),
           snapshot.regime?.name || null,
           snapshot.regime?.description || null,
+          snapshot.riskRegime?.name || null,
+          snapshot.riskRegime?.level || null,
+          toNumber(snapshot.riskRegime?.score),
+          snapshot.riskRegime?.description || null,
           JSON.stringify(snapshot.upcomingEvents?.sourceStatus || {}),
           JSON.stringify(trimSnapshot(snapshot))
         ]
@@ -660,6 +674,7 @@ function trimSnapshot(snapshot) {
     updatedAt: snapshot.updatedAt,
     marketScore: snapshot.marketScore,
     regime: snapshot.regime,
+    riskRegime: snapshot.riskRegime,
     flags: snapshot.flags,
     dimensions: snapshot.dimensions,
     frameworks: snapshot.frameworks,

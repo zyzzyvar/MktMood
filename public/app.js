@@ -29,6 +29,9 @@ const els = {
   scoreRing: document.querySelector("#scoreRing"),
   regimeName: document.querySelector("#regimeName"),
   regimeDescription: document.querySelector("#regimeDescription"),
+  riskStatus: document.querySelector("#riskStatus"),
+  riskRegimeName: document.querySelector("#riskRegimeName"),
+  riskRegimeScore: document.querySelector("#riskRegimeScore"),
   flagStrip: document.querySelector("#flagStrip"),
   eventSummary: document.querySelector("#eventSummary"),
   macroEvents: document.querySelector("#macroEvents"),
@@ -117,8 +120,16 @@ function render() {
   const { snapshot } = state;
   els.updatedAt.textContent = formatDateTime(snapshot.updatedAt);
   els.marketScore.textContent = formatScore(snapshot.marketScore);
-  els.regimeName.textContent = snapshot.regime.name;
-  els.regimeDescription.textContent = snapshot.regime.description;
+  const riskRegime = snapshot.riskRegime || { name: "风险状态未知", level: "calm", score: null, description: "" };
+  els.regimeName.textContent = riskRegime.level === "calm"
+    ? snapshot.regime.name
+    : `${snapshot.regime.name} · ${riskRegime.name}`;
+  els.riskRegimeName.textContent = riskRegime.name;
+  els.riskRegimeScore.textContent = `风险温度 ${Number.isFinite(Number(riskRegime.score)) ? riskRegime.score : "--"}`;
+  els.riskStatus.className = `risk-status ${escapeHtml(riskRegime.level || "calm")}`;
+  els.regimeDescription.textContent = riskRegime.description
+    ? `${snapshot.regime.description} ${riskRegime.description}`
+    : snapshot.regime.description;
   renderScoreRing(snapshot.marketScore);
   renderFlags(snapshot.flags);
   renderEventRadar(snapshot.upcomingEvents);
