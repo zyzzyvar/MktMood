@@ -119,9 +119,18 @@ function normalizeChart(result) {
   const rows = [];
   for (let i = 0; i < len; i += 1) {
     const close = Number(adj[i]);
+    const rawClose = Number(quote.close?.[i]);
     if (!Number.isFinite(close)) continue;
+    const ratio = Number.isFinite(rawClose) && rawClose !== 0 ? close / rawClose : 1;
+    const adjusted = (value) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n * ratio : null;
+    };
     rows.push({
       date: new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
+      open: adjusted(quote.open?.[i]) ?? close,
+      high: adjusted(quote.high?.[i]) ?? close,
+      low: adjusted(quote.low?.[i]) ?? close,
       close
     });
   }
@@ -161,9 +170,16 @@ function metricsFor(rows, asOf) {
   const eligible = rows.filter((item) => item.date <= asOf);
   if (eligible.length < 220) throw new Error(`Insufficient series history as of ${asOf}`);
   const values = eligible.map((item) => item.close);
+  const latest = eligible.at(-1);
+  const previous = eligible.at(-2);
   const close = values.at(-1);
   return {
     close,
+    open: latest.open,
+    high: latest.high,
+    low: latest.low,
+    prevClose: previous?.close ?? close,
+    latestGapPct: previous?.close ? ((latest.open / previous.close) - 1) * 100 : 0,
     ret5: pctChange(values, 5),
     ret10: pctChange(values, 10),
     ret20: pctChange(values, 20),
@@ -213,6 +229,7 @@ function buildRotationSignal(feature, context) {
     score: symbol === "CASH" ? null : round(scoreSymbol(feature, symbol), 4),
     action: actionText(symbol, weight, mode)
   }));
+  const executionPlan = buildExecutionPlan(feature, mode, market, events, targetRows);
   return {
     mode,
     title: signalTitle(mode, market, events),
@@ -228,6 +245,7 @@ function buildRotationSignal(feature, context) {
     },
     events,
     targets: targetRows,
+    executionPlan,
     diagnostics,
     alerts: buildPositioningAlerts(mode, market, events, targets)
   };
@@ -372,6 +390,98 @@ function buildDiagnostics(feature, market, events) {
     { label: "利率冲击", value: round(feature.TNX.change5, 3), detail: "10年期美债收益率 5 日变化，过快上行会压制成长股仓位。" },
     { label: "事件窗口", value: Object.entries(events).filter(([, active]) => active).map(([key]) => key).join(", ") || "无", detail: "FOMC、财报、期权到期和季末调仓会压低摆动/轮动激进度。" }
   ];
+}
+
+function buildExecutionPlan(feature, mode, market, events, targetRows) {
+  const eventOn = events.fomcWindow || events.opexWindow || events.quarterWindow || events.muEarningsWindow;
+  const activeEvents = Object.entries(events).filter(([, active]) => active).map(([key]) => key);
+  const rows = targetRows.map((target) => buildExecutionRow(feature, mode, market, events, target));
+  return {
+    profile: "adaptive_guarded_open",
+    title: "次日动态执行计划",
+    summary: executionSummary(mode, eventOn),
+    generatedFrom: "daily-close signal; next-session guarded-open execution",
+    rebalanceThresholdPct: 2,
+    backtest: {
+      period: "2026-01-02 to 2026-06-26",
+      baselineReturnPct: 84.01,
+      idealCloseSignalReturnPct: 107.96,
+      guardedOpenReturnPct: 118.59,
+      guardedOpenMaxDrawdownPct: -16.36,
+      note: "基于日线 OHLC 的执行敏感性回测，含 5 bps 单边成本；不是分钟级真实成交模拟。"
+    },
+    activeEventWindows: activeEvents,
+    orderFormula: {
+      deltaWeight: "targetWeight - currentBrokerWeight",
+      tradeWhen: "abs(deltaWeight) >= 0.02",
+      estimatedShares: "floor(abs(deltaWeight) * portfolioValue / referencePrice)"
+    },
+    globalRules: [
+      "目标权重和券商实际权重差异小于 2 个百分点时不动，避免无效磨损。",
+      "减仓优先于加仓；risk-off 或 TQQQ 减仓使用开盘后 5-20 分钟的可成交限价。",
+      "新增 MU/TQQQ 或事件窗口内加仓，不追高开；使用开盘一半 + 第一小时/VWAP 一半，或等待回落。",
+      "FOMC、MU 财报、期权到期、季末调仓窗口内，不新增额外摆动仓，只把组合拉回目标仓位。"
+    ],
+    rows
+  };
+}
+
+function buildExecutionRow(feature, mode, market, events, target) {
+  const symbol = target.symbol;
+  if (symbol === "CASH") {
+    return {
+      symbol,
+      targetWeightPct: target.weightPct,
+      style: "reserve",
+      primaryWindow: "不下单；作为深回撤和事件缓冲",
+      orderType: "cash",
+      limitBandPct: 0,
+      latestGapPct: null,
+      instructions: [
+        target.weightPct >= 20 ? "现金仓较高，除非触发深回撤企稳，不主动买入。" : "保留流动性，等待信号或实际仓位偏离。"
+      ]
+    };
+  }
+
+  const highBeta = symbol === "MU" || symbol === "TQQQ";
+  const gapLimitPct = highBeta ? 2.5 : 1.2;
+  const limitBandPct = { QQQ: 0.35, EWY: 0.6, MU: 1.0, TQQQ: 1.2 }[symbol] || 0.6;
+  const eventGuard = events.fomcWindow || events.opexWindow || events.quarterWindow || (symbol === "MU" && events.muEarningsWindow);
+  const shouldAvoidNewSwing = mode === "risk-off" || eventGuard;
+  const targetZero = target.weight <= 0.001;
+  const addWindow = shouldAvoidNewSwing
+    ? "09:45-11:30 ET 分批；若高开超过阈值，等 VWAP/第一小时后再补"
+    : "09:35-09:50 ET 优先；高开超过阈值则 10:00-11:30 ET 分批";
+  const reduceWindow = mode === "risk-off" || symbol === "TQQQ"
+    ? "09:35-09:50 ET 优先降仓"
+    : "09:35-10:30 ET；若明显高开，可开盘一半、第一小时一半";
+
+  return {
+    symbol,
+    targetWeightPct: target.weightPct,
+    referencePrice: target.price,
+    latestGapPct: round(feature[symbol].latestGapPct, 2),
+    style: targetZero ? "exit-only" : (shouldAvoidNewSwing ? "guarded-open" : "guarded-open offensive"),
+    minDeltaPct: 2,
+    gapLimitPct,
+    limitBandPct,
+    primaryWindow: targetZero ? reduceWindow : addWindow,
+    orderType: `marketable limit, band ±${limitBandPct}%`,
+    instructions: [
+      targetZero
+        ? "若券商实际权重大于 2%，下一交易日只做降仓到 0，不反手新增。"
+        : `若实际权重低于目标超过 2%，按目标 ${target.weightPct}% 补仓。`,
+      `若下一交易日开盘相对前收高开超过 ${gapLimitPct}%，不要全量追开盘；改为 open_mid 或 VWAP 附近分批。`,
+      `若实际权重高于目标超过 2%，按 ${reduceWindow} 降到目标；risk-off 下不等待尾盘确认。`,
+      shouldAvoidNewSwing ? "事件窗口内只做再平衡，不做额外摆动仓。" : "绿灯且未高开时可按开盘默认执行。"
+    ]
+  };
+}
+
+function executionSummary(mode, eventOn) {
+  if (mode === "risk-off") return "先降风险：超目标仓位开盘优先减，新增只保留核心，不启用摆动仓。";
+  if (eventOn) return "事件保护：目标仓位可执行，但新增仓位分批，避免在开盘跳空和事件前后追价。";
+  return "进攻动态：默认次日开盘执行；遇到高开、MU/TQQQ 或事件窗口，改成开盘一半 + 第一小时/VWAP 一半。";
 }
 
 function buildPositioningAlerts(mode, market, events, targets) {

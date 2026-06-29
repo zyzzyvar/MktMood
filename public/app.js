@@ -39,6 +39,7 @@ const els = {
   positionSummary: document.querySelector("#positionSummary"),
   positionDiagnostics: document.querySelector("#positionDiagnostics"),
   positionTargets: document.querySelector("#positionTargets"),
+  positionExecution: document.querySelector("#positionExecution"),
   eventSummary: document.querySelector("#eventSummary"),
   macroEvents: document.querySelector("#macroEvents"),
   earningsEvents: document.querySelector("#earningsEvents"),
@@ -157,6 +158,7 @@ function renderPositioning(positioning) {
     els.positionSummary.textContent = positioning?.summary || positioning?.error || "没有可用仓位信号。";
     els.positionDiagnostics.innerHTML = "";
     els.positionTargets.innerHTML = `<div class="event-empty warning">仓位策略数据暂不可用，请稍后刷新。</div>`;
+    els.positionExecution.innerHTML = "";
     return;
   }
 
@@ -209,6 +211,58 @@ function renderPositioning(positioning) {
       </div>
     `;
   }).join("");
+  renderPositionExecution(positioning.executionPlan);
+}
+
+function renderPositionExecution(plan) {
+  if (!plan) {
+    els.positionExecution.innerHTML = "";
+    return;
+  }
+  const rows = plan.rows || [];
+  els.positionExecution.innerHTML = `
+    <div class="execution-head">
+      <div>
+        <p class="section-kicker">Execution Plan</p>
+        <h3>${escapeHtml(plan.title || "动态执行计划")}</h3>
+        <p>${escapeHtml(plan.summary || "")}</p>
+      </div>
+      <div class="execution-stats">
+        <span>阈值 ${formatPercent(plan.rebalanceThresholdPct || 0)}</span>
+        <span>回测 ${formatNumber(plan.backtest?.guardedOpenReturnPct || 0)}%</span>
+        <span>最大回撤 ${formatNumber(plan.backtest?.guardedOpenMaxDrawdownPct || 0)}%</span>
+      </div>
+    </div>
+    <div class="execution-rules">
+      ${(plan.globalRules || []).map((rule) => `<span>${escapeHtml(rule)}</span>`).join("")}
+    </div>
+    <div class="execution-grid">
+      ${rows.map(renderExecutionRow).join("")}
+    </div>
+  `;
+}
+
+function renderExecutionRow(row) {
+  const isCash = row.symbol === "CASH";
+  const gap = Number.isFinite(Number(row.latestGapPct)) ? `${formatNumber(row.latestGapPct)}% 最新日跳空` : "现金";
+  const target = Number.isFinite(Number(row.targetWeightPct)) ? formatPercent(row.targetWeightPct) : "--";
+  return `
+    <article class="execution-card ${isCash ? "cash" : ""}">
+      <div class="execution-card-head">
+        <strong>${escapeHtml(row.symbol)}</strong>
+        <b>${target}</b>
+      </div>
+      <div class="execution-meta">
+        <span>${escapeHtml(row.style || "--")}</span>
+        <span>${escapeHtml(row.primaryWindow || "--")}</span>
+        <span>${escapeHtml(row.orderType || "--")}</span>
+        <span>${escapeHtml(gap)}</span>
+      </div>
+      <ul>
+        ${(row.instructions || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
+    </article>
+  `;
 }
 
 function openAgentCenter() {
