@@ -33,6 +33,12 @@ const els = {
   riskRegimeName: document.querySelector("#riskRegimeName"),
   riskRegimeScore: document.querySelector("#riskRegimeScore"),
   flagStrip: document.querySelector("#flagStrip"),
+  positionStatus: document.querySelector("#positionStatus"),
+  positionMode: document.querySelector("#positionMode"),
+  positionTitle: document.querySelector("#positionTitle"),
+  positionSummary: document.querySelector("#positionSummary"),
+  positionDiagnostics: document.querySelector("#positionDiagnostics"),
+  positionTargets: document.querySelector("#positionTargets"),
   eventSummary: document.querySelector("#eventSummary"),
   macroEvents: document.querySelector("#macroEvents"),
   earningsEvents: document.querySelector("#earningsEvents"),
@@ -132,6 +138,7 @@ function render() {
     : snapshot.regime.description;
   renderScoreRing(snapshot.marketScore);
   renderFlags(snapshot.flags);
+  renderPositioning(snapshot.positioning);
   renderEventRadar(snapshot.upcomingEvents);
   renderAnomalyRadar(snapshot.anomalyRadar);
   renderFrameworkTabs(snapshot.frameworks);
@@ -139,6 +146,69 @@ function render() {
   renderDimensions(snapshot.dimensions);
   renderCategoryFilters(snapshot.indicators);
   renderIndicators(snapshot.indicators);
+}
+
+function renderPositioning(positioning) {
+  if (!positioning || positioning.status !== "ok") {
+    els.positionStatus.innerHTML = `<span class="pill missing">不可用</span>`;
+    els.positionMode.className = "pill missing";
+    els.positionMode.textContent = "不可用";
+    els.positionTitle.textContent = positioning?.title || "仓位策略暂不可用";
+    els.positionSummary.textContent = positioning?.summary || positioning?.error || "没有可用仓位信号。";
+    els.positionDiagnostics.innerHTML = "";
+    els.positionTargets.innerHTML = `<div class="event-empty warning">仓位策略数据暂不可用，请稍后刷新。</div>`;
+    return;
+  }
+
+  const modeClass = positioning.mode === "risk-off"
+    ? "pressure"
+    : positioning.mode === "green-rotation"
+      ? "supportive"
+      : "neutral";
+  els.positionStatus.innerHTML = `
+    <span class="pill ${modeClass}">${escapeHtml(positioning.state.marketState.toUpperCase())}</span>
+    <span class="pill neutral">${escapeHtml(positioning.asOf || "--")}</span>
+  `;
+  els.positionMode.className = `pill ${modeClass}`;
+  els.positionMode.textContent = positioning.mode === "green-rotation"
+    ? "强势轮动"
+    : positioning.mode === "risk-off"
+      ? "风险防守"
+      : "事件保护";
+  els.positionTitle.textContent = positioning.title;
+  els.positionSummary.textContent = positioning.summary;
+  els.positionDiagnostics.innerHTML = (positioning.diagnostics || []).map((item) => `
+    <div class="position-diagnostic">
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.value)}</strong>
+      <small>${escapeHtml(item.detail)}</small>
+    </div>
+  `).join("");
+  els.positionTargets.innerHTML = (positioning.targets || []).map((target) => {
+    const weight = Number(target.weightPct || 0);
+    const barClass = target.symbol === "CASH"
+      ? "cash"
+      : weight >= 30
+        ? "heavy"
+        : "normal";
+    return `
+      <div class="position-target ${barClass}">
+        <div class="position-target-head">
+          <div>
+            <strong>${escapeHtml(target.symbol)}</strong>
+            <span>${escapeHtml(target.name)}</span>
+          </div>
+          <b>${formatPercent(weight)}</b>
+        </div>
+        <div class="bar position-bar"><span style="width:${Math.max(2, Math.min(100, weight))}%"></span></div>
+        <div class="position-target-meta">
+          <span>${escapeHtml(target.role)}</span>
+          <span>${target.price ? `价格 ${formatNumber(target.price)}` : "现金"}</span>
+          <span>${escapeHtml(target.action)}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
 }
 
 function openAgentCenter() {

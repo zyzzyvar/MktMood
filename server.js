@@ -19,6 +19,7 @@ const {
   buildDeleveragingAnalysis,
   buildDeleveragingFramework
 } = require("./deleveraging");
+const { buildPositioningStrategy } = require("./positioning");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -592,6 +593,15 @@ app.get("/api/market-structure", async (_req, res) => {
   });
 });
 
+app.get("/api/positioning", async (_req, res) => {
+  const snapshot = await getSnapshot();
+  res.json({
+    updatedAt: snapshot.updatedAt,
+    positioning: snapshot.positioning,
+    storage: snapshot.storage
+  });
+});
+
 app.get("/api/history/indicators/:id", async (req, res) => {
   const id = String(req.params.id);
   const limit = Number(req.query.limit || 200);
@@ -680,6 +690,7 @@ app.get("/api/agent/context", async (req, res) => {
       sectorMoves: (snapshot.anomalyRadar?.sectorMoves || []).slice(0, 8)
     },
     marketStructure: snapshot.marketStructure,
+    positioning: snapshot.positioning,
     storage: snapshot.storage,
     staleOrMissing: snapshot.indicators
       .filter((item) => item.status !== "ok")
@@ -757,6 +768,13 @@ async function buildSnapshot() {
     databaseInsights
   });
   const regime = classifyRegime(marketScore, indicators, riskRegime);
+  const positioning = await buildPositioningStrategy({
+    indicators,
+    upcomingEvents,
+    anomalyRadar,
+    riskRegime,
+    marketScore
+  });
   const flags = buildFlags(indicators, marketScore, anomalyRadar, riskRegime);
 
   const data = {
@@ -768,6 +786,7 @@ async function buildSnapshot() {
     upcomingEvents,
     anomalyRadar,
     marketStructure,
+    positioning,
     marketStructureSources: deleveragingData.sourceStatus,
     databaseInsights,
     dimensions,
@@ -779,6 +798,7 @@ async function buildSnapshot() {
       events: "/api/events",
       anomalies: "/api/anomalies",
       marketStructure: "/api/market-structure",
+      positioning: "/api/positioning",
       eventRevisions: "/api/events/revisions",
       indicatorHistory: "/api/history/indicators/spx",
       eventHistory: "/api/history/events/{eventKey}",
@@ -1676,6 +1696,22 @@ function buildHermesAlerts(snapshot) {
       actionHint: structure.bottom.action,
       dedupeKey: `market-structure:bottom:${structure.bottom.stage}:${structure.bottom.blocked}:${day}`,
       payload: structure
+    });
+  }
+
+  for (const alert of snapshot.positioning?.alerts || []) {
+    alerts.push({
+      type: "positioning_signal",
+      severity: alert.severity || "medium",
+      title: alert.title,
+      detail: alert.detail,
+      actionHint: snapshot.positioning?.summary || "按仓位策略面板确认目标权重与事件窗口。",
+      dedupeKey: `positioning:${snapshot.positioning?.mode || "unknown"}:${alert.title}:${day}`,
+      payload: {
+        asOf: snapshot.positioning?.asOf,
+        mode: snapshot.positioning?.mode,
+        targets: snapshot.positioning?.targets
+      }
     });
   }
 

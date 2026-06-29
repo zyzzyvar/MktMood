@@ -680,6 +680,7 @@ function trimSnapshot(snapshot) {
     frameworks: snapshot.frameworks,
     marketStructure: snapshot.marketStructure,
     marketStructureSources: snapshot.marketStructureSources,
+    positioning: snapshot.positioning,
     api: snapshot.api
   };
 }

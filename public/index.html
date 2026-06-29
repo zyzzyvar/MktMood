@@ -122,6 +122,25 @@
         <div class="flag-strip" id="flagStrip"></div>
       </section>
 
+      <section class="position-section">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Positioning Strategy</p>
+            <h2>仓位执行建议</h2>
+          </div>
+          <div class="position-status" id="positionStatus"></div>
+        </div>
+        <div class="position-layout">
+          <div class="position-summary">
+            <span id="positionMode" class="pill neutral">读取中</span>
+            <h3 id="positionTitle">等待策略信号</h3>
+            <p id="positionSummary">正在结合市场状态、行业强弱、VIX、利率和事件窗口生成目标仓位。</p>
+            <div id="positionDiagnostics" class="position-diagnostics"></div>
+          </div>
+          <div class="position-targets" id="positionTargets"></div>
+        </div>
+      </section>
+
       <section class="event-section">
         <div class="section-heading">
           <div>
@@ -204,6 +223,7 @@
         <div class="endpoint-grid">
           <code>/api/snapshot</code>
           <code>/api/frameworks</code>
+          <code>/api/positioning</code>
           <code>/api/market-structure</code>
           <code>/api/agent/context?framework=liquidity-risk</code>
         </div>

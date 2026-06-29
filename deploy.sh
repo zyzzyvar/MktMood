@@ -18,6 +18,7 @@ npm install
 echo "==> Syntax check"
 node --check server.js
 node --check db.js
+node --check positioning.js
 node --check public/app.js
 node --check deleveraging.js
 if [ -f playbooks.js ]; then
@@ -102,6 +103,11 @@ echo "==> Verify market structure API"
 curl -fsS "http://127.0.0.1:$PORT/api/market-structure" | grep -q "deleveraging-bottom" \
   && echo "Market structure check passed" \
   || { echo "ERROR: Market structure API marker not found"; exit 1; }
+
+echo "==> Verify positioning API"
+curl -fsS --max-time 90 "$LOCAL_URL/api/positioning" | grep -q '"positioning"' \
+  && echo "Positioning check passed" \
+  || { echo "ERROR: Positioning API marker not found"; exit 1; }
 
 echo "==> Done"
 pm2 status "$APP_NAME"
