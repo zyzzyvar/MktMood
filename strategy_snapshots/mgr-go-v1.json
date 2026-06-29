@@ -1,0 +1,47 @@
+{
+  "id": "mgr-go-v1",
+  "name": "MGR-GO v1",
+  "fullName": "Macro-Gated Rotation with Guarded-Open Execution v1",
+  "snapshotDate": "2026-06-29",
+  "codeBaseline": "76a3a3e",
+  "universe": ["QQQ", "MU", "EWY", "TQQQ", "CASH"],
+  "parameters": {
+    "vixGreen": 22,
+    "vixRed": 24,
+    "rateJump": 0.25,
+    "qqqFloor": 0.2,
+    "redCash": 0.25,
+    "tqqqCap": 0.18,
+    "topConcentration": 0.75,
+    "earningsMuCap": 0.25,
+    "rebalanceThresholdPct": 2,
+    "executionProfile": "adaptive_guarded_open",
+    "limitBandsPct": {
+      "QQQ": 0.35,
+      "MU": 1.0,
+      "EWY": 0.6,
+      "TQQQ": 1.2
+    }
+  },
+  "referenceBacktest": {
+    "script": "C:/Users/Administrator/Downloads/us_execution_timing_backtest.py",
+    "outputDirectory": "C:/Users/Administrator/Downloads/us_execution_timing_output",
+    "period": "2026-01-02:2026-06-26",
+    "baselineMonthlyBucket": {
+      "endValue": 1.8401,
+      "returnPct": 84.01,
+      "maxDrawdownPct": -16.81
+    },
+    "adaptiveGuardedOpen": {
+      "endValue": 2.1859,
+      "returnPct": 118.59,
+      "maxDrawdownPct": -16.36
+    }
+  },
+  "limitations": [
+    "Fixed strategy thresholds are still used.",
+    "Market-state memory is limited to current feature windows.",
+    "No broker-position ingestion or live order placement is included.",
+    "Backtest is daily OHLC execution sensitivity, not minute-level fill simulation."
+  ]
+}
