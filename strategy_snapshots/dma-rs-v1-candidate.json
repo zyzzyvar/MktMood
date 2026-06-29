@@ -1,0 +1,60 @@
+{
+  "id": "dma-rs-v1-candidate",
+  "name": "DMA-RS v1 Candidate",
+  "fullName": "Dynamic Market Atmosphere Regime System v1",
+  "status": "research_candidate_not_deployed",
+  "snapshotDate": "2026-06-29",
+  "baselineStrategy": "MGR-GO v1",
+  "selectedCandidate": "mgr_dma_micro_overlay__eu0p12",
+  "universe": ["QQQ", "MU", "EWY", "TQQQ", "CASH"],
+  "parameters": {
+    "hysteresisDays": 1,
+    "panicRiskyCut": 0.15,
+    "panicQqqCut": 0.0,
+    "euphoriaRiskyCut": 0.12,
+    "repairCashDeploy": 0.70,
+    "constructiveCashDeploy": 0.90,
+    "minCash": 0.0
+  },
+  "validation": {
+    "script": "C:/Users/Administrator/Downloads/us_dynamic_mechanism_rolling_validation.py",
+    "outputDirectory": "C:/Users/Administrator/Downloads/us_dynamic_mechanism_rolling_output_core",
+    "method": [
+      "2023-2024 training",
+      "2025 validation",
+      "2026H1 out-of-sample test",
+      "2024-2026H1 rolling out-of-sample comparison"
+    ],
+    "results": {
+      "val2025": {
+        "mgrGoV1": { "endValue": 1.8055, "maxDrawdownPct": -26.29, "sharpe": 2.5518 },
+        "dmaRsV1": { "endValue": 1.8257, "maxDrawdownPct": -25.40, "sharpe": 2.6328 }
+      },
+      "test2026H1": {
+        "mgrGoV1": { "endValue": 2.1854, "maxDrawdownPct": -16.36, "sharpe": 7.6917 },
+        "dmaRsV1": { "endValue": 2.2003, "maxDrawdownPct": -15.16, "sharpe": 7.8269 }
+      },
+      "oos2024To2026H1": {
+        "mgrGoV1": { "endValue": 3.7832, "maxDrawdownPct": -41.04, "sharpe": 2.0459 },
+        "dmaRsV1": { "endValue": 3.8856, "maxDrawdownPct": -40.23, "sharpe": 2.0960 }
+      },
+      "full2023To2026H1": {
+        "mgrGoV1": { "endValue": 5.7781, "maxDrawdownPct": -41.04, "sharpe": 2.0808 },
+        "dmaRsV1": { "endValue": 5.9706, "maxDrawdownPct": -40.23, "sharpe": 2.1237 },
+        "fixedMonthlyBucket": { "endValue": 6.0210, "maxDrawdownPct": -31.88 }
+      }
+    }
+  },
+  "latestValidationSignal": {
+    "asOf": "2026-06-29",
+    "phase": "transition",
+    "targetWeights": {
+      "QQQ": 0.50,
+      "MU": 0.22,
+      "EWY": 0.13,
+      "TQQQ": 0.05,
+      "CASH": 0.10
+    }
+  },
+  "productionDecision": "Keep MGR-GO v1 deployed. Treat DMA-RS v1 as the best current dynamic mechanism candidate for alternate-profile integration and paper validation."
+}
