@@ -30,6 +30,16 @@ const BEST_PARAMS = {
   earningsMuCap: 0.25
 };
 
+const DMA_RS_V1_PARAMS = {
+  hysteresisDays: 1,
+  panicRiskyCut: 0.15,
+  panicQqqCut: 0.0,
+  euphoriaRiskyCut: 0.12,
+  repairCashDeploy: 0.70,
+  constructiveCashDeploy: 0.90,
+  minCash: 0.0
+};
+
 async function buildPositioningStrategy(context = {}) {
   try {
     const series = await fetchAllSeries();
@@ -163,6 +173,7 @@ function buildLatestFeature(series) {
     value: xlkRatioDates.at(-1).value,
     sma20: average(xlkRatioDates.slice(-20).map((item) => item.value))
   };
+  feature.dynamic = buildDynamicAtmosphere(series, feature, asOf);
   return feature;
 }
 
@@ -183,6 +194,7 @@ function metricsFor(rows, asOf) {
     ret5: pctChange(values, 5),
     ret10: pctChange(values, 10),
     ret20: pctChange(values, 20),
+    sma5: average(values.slice(-5)),
     sma20: average(values.slice(-20)),
     sma50: average(values.slice(-50)),
     sma200: average(values.slice(-200)),
@@ -200,6 +212,96 @@ function buildAlignedRatio(numerator, denominator, asOf) {
     .filter((item) => item.date <= asOf && denMap.has(item.date))
     .map((item) => ({ date: item.date, value: item.close / denMap.get(item.date) }))
     .slice(-60);
+}
+
+function buildDynamicAtmosphere(series, feature, asOf) {
+  const vixValues = series.VIX.filter((item) => item.date <= asOf).map((item) => item.close).slice(-252);
+  const tnxRows = series.TNX.filter((item) => item.date <= asOf);
+  const tnxShockValues = [];
+  for (let i = Math.max(5, tnxRows.length - 252); i < tnxRows.length; i += 1) {
+    tnxShockValues.push(Math.abs(tnxRows[i].close - tnxRows[i - 5].close));
+  }
+  const returns = ["QQQ", "MU", "EWY", "TQQQ"].map((symbol) => {
+    const rows = series[symbol].filter((item) => item.date <= asOf).slice(-21);
+    const out = [];
+    for (let i = 1; i < rows.length; i += 1) out.push(rows[i].close / rows[i - 1].close - 1);
+    return out;
+  });
+  const crossCorr20 = averagePairwiseCorrelation(returns);
+  const eventCount = 0;
+  const qqqDrawdownStress = Math.abs(Math.min(feature.QQQ.close / feature.QQQ.hi20 - 1, 0));
+  const vixPct252 = percentileRank(vixValues, feature.VIX.close);
+  const tnxShockPct252 = percentileRank(tnxShockValues, Math.abs(feature.TNX.change5));
+  const trendScore = (
+    (feature.SPY.close > feature.SPY.sma50 ? 1 : 0)
+    + (feature.QQQ.close > feature.QQQ.sma20 ? 1 : 0)
+    + (feature.QQQ.close > feature.QQQ.sma50 ? 1 : 0)
+    + (feature.QQQ.close > feature.QQQ.sma200 ? 1 : 0)
+    + (feature.smhSpy.value > feature.smhSpy.sma20 ? 1 : 0)
+    + (feature.xlkSpy.value > feature.xlkSpy.sma20 ? 1 : 0)
+  ) / 6;
+  const leadershipScore = (
+    (feature.smhSpy.value > feature.smhSpy.sma20 ? 1 : 0)
+    + (feature.xlkSpy.value > feature.xlkSpy.sma20 ? 1 : 0)
+    + (feature.KOSPI.close > feature.KOSPI.sma20 ? 1 : 0)
+  ) / 3;
+  const stressScore = clamp(
+    0.36 * clamp(vixPct252, 0, 1)
+      + 0.18 * clamp(tnxShockPct252, 0, 1)
+      + 0.16 * clamp(crossCorr20, 0, 1)
+      + 0.15 * (Math.min(eventCount, 2) / 2)
+      + 0.15 * clamp(qqqDrawdownStress / 0.08, 0, 1),
+    0,
+    1
+  );
+  return {
+    vixPct252: round(vixPct252, 4),
+    tnxShockPct252: round(tnxShockPct252, 4),
+    crossCorr20: round(crossCorr20, 4),
+    trendScore: round(trendScore, 4),
+    leadershipScore: round(leadershipScore, 4),
+    qqqDrawdownStress: round(qqqDrawdownStress, 4),
+    stressScore: round(stressScore, 4),
+    vixFalling: feature.VIX.close <= feature.VIX.sma5 * 1.03
+  };
+}
+
+function percentileRank(values, current) {
+  const clean = values.filter(Number.isFinite);
+  if (!clean.length || !Number.isFinite(current)) return 0.5;
+  return clean.filter((value) => value <= current).length / clean.length;
+}
+
+function averagePairwiseCorrelation(seriesList) {
+  const pairs = [];
+  for (let i = 0; i < seriesList.length; i += 1) {
+    for (let j = i + 1; j < seriesList.length; j += 1) {
+      const corr = correlation(seriesList[i], seriesList[j]);
+      if (Number.isFinite(corr)) pairs.push(corr);
+    }
+  }
+  return pairs.length ? average(pairs) : 0.25;
+}
+
+function correlation(a, b) {
+  const len = Math.min(a.length, b.length);
+  if (len < 5) return NaN;
+  const x = a.slice(-len);
+  const y = b.slice(-len);
+  const ax = average(x);
+  const ay = average(y);
+  let numerator = 0;
+  let dx = 0;
+  let dy = 0;
+  for (let i = 0; i < len; i += 1) {
+    const xv = x[i] - ax;
+    const yv = y[i] - ay;
+    numerator += xv * yv;
+    dx += xv * xv;
+    dy += yv * yv;
+  }
+  const denom = Math.sqrt(dx * dy);
+  return denom > 0 ? numerator / denom : NaN;
 }
 
 function buildRotationSignal(feature, context) {
@@ -230,6 +332,8 @@ function buildRotationSignal(feature, context) {
     action: actionText(symbol, weight, mode)
   }));
   const executionPlan = buildExecutionPlan(feature, mode, market, events, targetRows);
+  const strategyProfiles = buildStrategyProfiles(feature, mode, market, events, targets, targetRows);
+  const strategyComparison = compareStrategyProfiles(strategyProfiles);
   return {
     mode,
     title: signalTitle(mode, market, events),
@@ -245,6 +349,8 @@ function buildRotationSignal(feature, context) {
     },
     events,
     targets: targetRows,
+    strategyProfiles,
+    strategyComparison,
     executionPlan,
     diagnostics,
     alerts: buildPositioningAlerts(mode, market, events, targets)
@@ -381,6 +487,185 @@ function normalize(weights) {
   const out = {};
   for (const [key, value] of Object.entries(weights)) out[key] = round(value / total, 4);
   return out;
+}
+
+function buildStrategyProfiles(feature, mode, market, events, mgrTargets, mgrRows) {
+  const phase = dynamicPhase(feature, market, events);
+  const dmaTargets = applyDmaOverlay(feature, mgrTargets, phase);
+  const dmaRows = Object.entries(dmaTargets).map(([symbol, weight]) => ({
+    symbol,
+    name: targetName(symbol),
+    weight,
+    weightPct: round(weight * 100, 1),
+    price: symbol === "CASH" ? null : round(feature[symbol].close, 2),
+    role: targetRole(symbol, mode),
+    score: symbol === "CASH" ? null : round(dynamicSymbolScore(feature, symbol), 4),
+    action: actionText(symbol, weight, mode)
+  }));
+  return [
+    {
+      id: "mgr-go-v1",
+      name: "MGR-GO v1",
+      status: "deployed_default",
+      title: "默认执行策略",
+      summary: "线上默认：宏观闸门轮动 + 受保护开盘执行。",
+      mode,
+      phase: mode,
+      backtest: {
+        validation: "2026H1 execution sensitivity",
+        returnPct: 118.59,
+        maxDrawdownPct: -16.36
+      },
+      targets: mgrRows
+    },
+    {
+      id: "dma-rs-v1-candidate",
+      name: "DMA-RS v1 Candidate",
+      status: "paper_candidate",
+      title: "研究候选策略",
+      summary: dmaSummary(phase, dmaTargets),
+      mode,
+      phase,
+      diagnostics: {
+        stressScore: feature.dynamic.stressScore,
+        trendScore: feature.dynamic.trendScore,
+        leadershipScore: feature.dynamic.leadershipScore,
+        vixPct252: feature.dynamic.vixPct252,
+        tnxShockPct252: feature.dynamic.tnxShockPct252,
+        crossCorr20: feature.dynamic.crossCorr20
+      },
+      backtest: {
+        validation: "2023-2024 train / 2025 validation / 2026H1 test",
+        returnPct2026H1: 120.03,
+        maxDrawdownPct2026H1: -15.16,
+        oosReturnRatio2024To2026H1: 3.8856,
+        status: "research candidate, not default execution"
+      },
+      targets: dmaRows
+    }
+  ];
+}
+
+function dynamicPhase(feature, market, events) {
+  const d = feature.dynamic;
+  const eventGuard = events.fomcWindow || events.opexWindow || events.quarterWindow || events.muEarningsWindow;
+  const panic = market.state === "red"
+    || (d.stressScore >= 0.76 && feature.QQQ.close < feature.QQQ.sma20)
+    || (d.vixPct252 >= 0.88 && feature.QQQ.ret5 < 0);
+  const repair = !panic
+    && d.stressScore >= 0.48
+    && d.vixFalling
+    && feature.QQQ.ret5 > 0
+    && feature.QQQ.close >= feature.QQQ.sma20 * 0.985;
+  const constructive = !panic
+    && d.trendScore >= 0.72
+    && d.leadershipScore >= 0.66
+    && d.stressScore <= 0.58;
+  const euphoric = constructive
+    && d.vixPct252 <= 0.38
+    && (feature.QQQ.rsi14 >= 68 || feature.QQQ.ret20 >= 0.10);
+  if (panic) return "panic";
+  if (eventGuard) return "event_guard";
+  if (euphoric) return "euphoric";
+  if (constructive) return "constructive";
+  if (repair) return "repair";
+  return "transition";
+}
+
+function applyDmaOverlay(feature, mgrTargets, phase) {
+  const out = { ...mgrTargets };
+  if (phase === "panic") {
+    const riskCut = DMA_RS_V1_PARAMS.panicRiskyCut * Math.min(1, Math.max(0.35, feature.dynamic.stressScore / 0.80));
+    for (const symbol of ["MU", "EWY"]) {
+      const reduction = out[symbol] * riskCut;
+      out[symbol] -= reduction;
+      out.CASH += reduction;
+    }
+    out.CASH += out.TQQQ;
+    out.TQQQ = 0;
+    const qqqReduction = out.QQQ * DMA_RS_V1_PARAMS.panicQqqCut;
+    out.QQQ -= qqqReduction;
+    out.CASH += qqqReduction;
+  } else if (phase === "euphoric") {
+    for (const symbol of ["MU", "TQQQ"]) {
+      const reduction = out[symbol] * DMA_RS_V1_PARAMS.euphoriaRiskyCut;
+      out[symbol] -= reduction;
+      out.CASH += reduction;
+    }
+  } else if (phase === "repair" && feature.dynamic.vixFalling && feature.QQQ.ret5 > 0) {
+    deployCash(feature, out, Math.max(0, out.CASH - DMA_RS_V1_PARAMS.minCash) * DMA_RS_V1_PARAMS.repairCashDeploy);
+  } else if (phase === "constructive" && feature.dynamic.stressScore < 0.45) {
+    deployCash(feature, out, Math.max(0, out.CASH - DMA_RS_V1_PARAMS.minCash) * DMA_RS_V1_PARAMS.constructiveCashDeploy);
+  }
+  return normalize(out);
+}
+
+function deployCash(feature, weights, amount) {
+  const caps = { QQQ: 0.72, MU: 0.58, EWY: 0.35, TQQQ: 0.18 };
+  let remaining = Math.min(amount, weights.CASH);
+  const ranked = ["QQQ", "MU", "EWY", "TQQQ"]
+    .map((symbol) => ({ symbol, score: dynamicSymbolScore(feature, symbol) }))
+    .sort((a, b) => b.score - a.score);
+  for (const item of ranked) {
+    if (remaining <= 1e-9) break;
+    const room = Math.max(0, caps[item.symbol] - weights[item.symbol]);
+    const add = Math.min(room, remaining);
+    weights[item.symbol] += add;
+    weights.CASH -= add;
+    remaining -= add;
+  }
+}
+
+function dynamicSymbolScore(feature, symbol) {
+  if (symbol === "CASH") return 0;
+  const source = symbol === "TQQQ" ? "QQQ" : symbol;
+  if (symbol !== "QQQ" && !industryOk(feature, symbol)) return -8;
+  let trendBonus = feature[source].close > feature[source].sma20 ? 0.6 : -0.4;
+  if (symbol === "QQQ" && !industryOk(feature, "QQQ")) trendBonus -= 0.35;
+  const pullbackBonus = feature[source].rsi2 <= 20 && feature[source].close >= feature[source].sma50 * 0.97 ? 0.25 : 0;
+  const overheatPenalty = feature[source].rsi14 >= 76 && feature[source].ret20 >= 0.12 ? 0.35 : 0;
+  const leverPenalty = symbol === "TQQQ" ? Math.max(feature.dynamic.vixPct252 - 0.55, 0) * 1.2 : 0;
+  return (
+    5.0 * feature[source].ret20
+    + 2.2 * feature[source].ret10
+    + 1.0 * feature[source].ret5
+    + trendBonus
+    + pullbackBonus
+    - overheatPenalty
+    - 0.55 * feature.dynamic.stressScore
+    - leverPenalty
+  );
+}
+
+function dmaSummary(phase, targets) {
+  const cash = round((targets.CASH || 0) * 100, 1);
+  if (phase === "panic") return `DMA-RS v1 进入 panic 覆盖层，轻降风险资产，现金 ${cash}%。`;
+  if (phase === "euphoric") return `DMA-RS v1 识别过热，削减部分 MU/TQQQ，现金 ${cash}%。`;
+  if (phase === "repair") return `DMA-RS v1 识别修复期，按强弱部署部分现金，现金 ${cash}%。`;
+  if (phase === "constructive") return `DMA-RS v1 识别建设性行情，更积极部署现金，现金 ${cash}%。`;
+  if (phase === "event_guard") return `DMA-RS v1 维持事件保护结构，现金 ${cash}%。`;
+  return `DMA-RS v1 处于 transition，保持默认保护配置，现金 ${cash}%。`;
+}
+
+function compareStrategyProfiles(profiles) {
+  const defaultProfile = profiles.find((item) => item.id === "mgr-go-v1");
+  const candidate = profiles.find((item) => item.id === "dma-rs-v1-candidate");
+  if (!defaultProfile || !candidate) return null;
+  const baseMap = Object.fromEntries(defaultProfile.targets.map((item) => [item.symbol, item.weightPct]));
+  const candidateMap = Object.fromEntries(candidate.targets.map((item) => [item.symbol, item.weightPct]));
+  const deltas = ["QQQ", "MU", "EWY", "TQQQ", "CASH"].map((symbol) => ({
+    symbol,
+    defaultWeightPct: round(baseMap[symbol] || 0, 1),
+    candidateWeightPct: round(candidateMap[symbol] || 0, 1),
+    deltaPct: round((candidateMap[symbol] || 0) - (baseMap[symbol] || 0), 1)
+  }));
+  return {
+    defaultStrategyId: defaultProfile.id,
+    candidateStrategyId: candidate.id,
+    recommendation: "keep_default_live_use_candidate_for_paper_tracking",
+    summary: "默认仍执行 MGR-GO v1；DMA-RS v1 作为候选策略并排跟踪。",
+    deltas
+  };
 }
 
 function buildDiagnostics(feature, market, events) {
@@ -611,6 +896,11 @@ function round(value, digits = 2) {
   if (!Number.isFinite(Number(value))) return null;
   const factor = 10 ** digits;
   return Math.round(Number(value) * factor) / factor;
+}
+
+function clamp(value, min, max) {
+  if (!Number.isFinite(Number(value))) return min;
+  return Math.max(min, Math.min(max, Number(value)));
 }
 
 module.exports = {

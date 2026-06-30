@@ -39,6 +39,7 @@ const els = {
   positionSummary: document.querySelector("#positionSummary"),
   positionDiagnostics: document.querySelector("#positionDiagnostics"),
   positionTargets: document.querySelector("#positionTargets"),
+  positionProfiles: document.querySelector("#positionProfiles"),
   positionExecution: document.querySelector("#positionExecution"),
   eventSummary: document.querySelector("#eventSummary"),
   macroEvents: document.querySelector("#macroEvents"),
@@ -158,6 +159,7 @@ function renderPositioning(positioning) {
     els.positionSummary.textContent = positioning?.summary || positioning?.error || "没有可用仓位信号。";
     els.positionDiagnostics.innerHTML = "";
     els.positionTargets.innerHTML = `<div class="event-empty warning">仓位策略数据暂不可用，请稍后刷新。</div>`;
+    els.positionProfiles.innerHTML = "";
     els.positionExecution.innerHTML = "";
     return;
   }
@@ -211,7 +213,61 @@ function renderPositioning(positioning) {
       </div>
     `;
   }).join("");
+  renderPositionProfiles(positioning.strategyProfiles, positioning.strategyComparison);
   renderPositionExecution(positioning.executionPlan);
+}
+
+function renderPositionProfiles(profiles = [], comparison) {
+  if (!profiles.length) {
+    els.positionProfiles.innerHTML = "";
+    return;
+  }
+  const comparisonRows = comparison?.deltas || [];
+  els.positionProfiles.innerHTML = `
+    <div class="profile-head">
+      <div>
+        <p class="section-kicker">Strategy Profiles</p>
+        <h3>MGR-GO v1 vs DMA-RS v1</h3>
+        <p>${escapeHtml(comparison?.summary || "候选策略与默认策略并排跟踪。")}</p>
+      </div>
+      <span class="pill neutral">${escapeHtml(comparison?.recommendation || "paper tracking")}</span>
+    </div>
+    <div class="profile-grid">
+      ${profiles.map(renderStrategyProfile).join("")}
+    </div>
+    <div class="profile-delta-table">
+      ${comparisonRows.map((row) => `
+        <div>
+          <strong>${escapeHtml(row.symbol)}</strong>
+          <span>默认 ${formatPercent(row.defaultWeightPct)}</span>
+          <span>候选 ${formatPercent(row.candidateWeightPct)}</span>
+          <b class="${Number(row.deltaPct) >= 0 ? "up" : "down"}">${Number(row.deltaPct) >= 0 ? "+" : ""}${formatNumber(row.deltaPct)}%</b>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderStrategyProfile(profile) {
+  const statusClass = profile.status === "deployed_default" ? "supportive" : "neutral";
+  return `
+    <article class="profile-card">
+      <div class="profile-title-row">
+        <strong>${escapeHtml(profile.name)}</strong>
+        <span class="pill ${statusClass}">${escapeHtml(profile.status)}</span>
+      </div>
+      <p>${escapeHtml(profile.summary || "")}</p>
+      <div class="profile-meta">
+        <span>phase: ${escapeHtml(profile.phase || "--")}</span>
+        <span>${escapeHtml(profile.backtest?.validation || "--")}</span>
+      </div>
+      <div class="profile-weights">
+        ${(profile.targets || []).map((target) => `
+          <span>${escapeHtml(target.symbol)} ${formatPercent(target.weightPct)}</span>
+        `).join("")}
+      </div>
+    </article>
+  `;
 }
 
 function renderPositionExecution(plan) {

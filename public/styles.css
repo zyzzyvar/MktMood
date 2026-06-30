@@ -464,6 +464,101 @@ h3 {
   line-height: 1.35;
 }
 
+.position-profiles {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.profile-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.profile-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.profile-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.profile-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.profile-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.profile-meta,
+.profile-weights,
+.profile-delta-table {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-meta span,
+.profile-weights span,
+.profile-delta-table span,
+.profile-delta-table b {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #eef3f8;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.profile-delta-table {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.profile-delta-table div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.profile-delta-table b.up {
+  color: var(--green);
+}
+
+.profile-delta-table b.down {
+  color: var(--red);
+}
+
 .position-execution {
   grid-column: 1 / -1;
   min-width: 0;
