@@ -223,11 +223,13 @@ function renderPositionProfiles(profiles = [], comparison) {
     return;
   }
   const comparisonRows = comparison?.deltas || [];
+  const candidate = profiles.find((profile) => profile.id === comparison?.candidateStrategyId)
+    || profiles.find((profile) => profile.id !== comparison?.defaultStrategyId);
   els.positionProfiles.innerHTML = `
     <div class="profile-head">
       <div>
         <p class="section-kicker">Strategy Profiles</p>
-        <h3>MGR-GO v1 vs DMA-RS v1</h3>
+        <h3>MGR-GO v1 vs ${escapeHtml(candidate?.name || "Candidates")}</h3>
         <p>${escapeHtml(comparison?.summary || "候选策略与默认策略并排跟踪。")}</p>
       </div>
       <span class="pill neutral">${escapeHtml(comparison?.recommendation || "paper tracking")}</span>
@@ -250,6 +252,8 @@ function renderPositionProfiles(profiles = [], comparison) {
 
 function renderStrategyProfile(profile) {
   const statusClass = profile.status === "deployed_default" ? "supportive" : "neutral";
+  const sleeves = profile.sleeves;
+  const drivers = profile.drivers || [];
   return `
     <article class="profile-card">
       <div class="profile-title-row">
@@ -261,12 +265,36 @@ function renderStrategyProfile(profile) {
         <span>phase: ${escapeHtml(profile.phase || "--")}</span>
         <span>${escapeHtml(profile.backtest?.validation || "--")}</span>
       </div>
+      ${renderProfileDiagnostics(profile.diagnostics)}
+      ${sleeves ? `
+        <div class="profile-sleeves">
+          <span>core ${formatPercent(sleeves.coreHoldPct)}</span>
+          <span>swing ${formatPercent(sleeves.swingPct)}</span>
+          <span>cash ${formatPercent(sleeves.reserveCashPct)}</span>
+        </div>
+      ` : ""}
       <div class="profile-weights">
         ${(profile.targets || []).map((target) => `
           <span>${escapeHtml(target.symbol)} ${formatPercent(target.weightPct)}</span>
         `).join("")}
       </div>
+      ${drivers.length ? `
+        <ul class="profile-drivers">
+          ${drivers.slice(0, 6).map((driver) => `<li>${escapeHtml(driver)}</li>`).join("")}
+        </ul>
+      ` : ""}
     </article>
+  `;
+}
+
+function renderProfileDiagnostics(diagnostics) {
+  if (!diagnostics) return "";
+  return `
+    <div class="profile-diagnostics-mini">
+      ${Object.entries(diagnostics).slice(0, 8).map(([key, value]) => `
+        <span>${escapeHtml(key)} ${formatNumber(value)}</span>
+      `).join("")}
+    </div>
   `;
 }
 

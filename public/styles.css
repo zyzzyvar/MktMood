@@ -517,6 +517,8 @@ h3 {
 
 .profile-meta,
 .profile-weights,
+.profile-sleeves,
+.profile-diagnostics-mini,
 .profile-delta-table {
   display: flex;
   flex-wrap: wrap;
@@ -525,6 +527,8 @@ h3 {
 
 .profile-meta span,
 .profile-weights span,
+.profile-sleeves span,
+.profile-diagnostics-mini span,
 .profile-delta-table span,
 .profile-delta-table b {
   padding: 5px 8px;
@@ -533,6 +537,26 @@ h3 {
   color: var(--muted);
   font-size: 12px;
   font-weight: 750;
+}
+
+.profile-sleeves span {
+  background: #eef8f2;
+  color: var(--green);
+}
+
+.profile-diagnostics-mini span {
+  background: #f4f0ff;
+  color: #6554a6;
+}
+
+.profile-drivers {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .profile-delta-table {

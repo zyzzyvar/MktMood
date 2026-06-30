@@ -40,6 +40,21 @@ const DMA_RS_V1_PARAMS = {
   minCash: 0.0
 };
 
+const DMA_RS_V2_PARAMS = {
+  minCash: 0.03,
+  maxCash: 0.48,
+  highRiskCash: 0.34,
+  eventCashAdd: 0.08,
+  fragilityCashAdd: 0.10,
+  riskOnCashCut: 0.08,
+  maxTqqq: 0.16,
+  guardedTqqq: 0.06,
+  maxMu: 0.56,
+  maxEwy: 0.32,
+  coreQqqMin: 0.36,
+  coreQqqMax: 0.70
+};
+
 async function buildPositioningStrategy(context = {}) {
   try {
     const series = await fetchAllSeries();
@@ -307,6 +322,7 @@ function correlation(a, b) {
 function buildRotationSignal(feature, context) {
   const market = marketState(feature);
   const events = eventRisk(feature.asOf, context.upcomingEvents);
+  const atmosphere = buildAtmosphereState(feature, context, market, events);
   const eventRiskOn = events.fomcWindow || events.opexWindow || events.quarterWindow;
   let targets;
   let mode;
@@ -321,18 +337,9 @@ function buildRotationSignal(feature, context) {
     targets = greenTargets(feature, events);
   }
   const diagnostics = buildDiagnostics(feature, market, events);
-  const targetRows = Object.entries(targets).map(([symbol, weight]) => ({
-    symbol,
-    name: targetName(symbol),
-    weight,
-    weightPct: round(weight * 100, 1),
-    price: symbol === "CASH" ? null : round(feature[symbol].close, 2),
-    role: targetRole(symbol, mode),
-    score: symbol === "CASH" ? null : round(scoreSymbol(feature, symbol), 4),
-    action: actionText(symbol, weight, mode)
-  }));
+  const targetRows = rowsFromTargets(feature, targets, mode, (symbol) => scoreSymbol(feature, symbol));
   const executionPlan = buildExecutionPlan(feature, mode, market, events, targetRows);
-  const strategyProfiles = buildStrategyProfiles(feature, mode, market, events, targets, targetRows);
+  const strategyProfiles = buildStrategyProfiles(feature, mode, market, events, targets, targetRows, atmosphere);
   const strategyComparison = compareStrategyProfiles(strategyProfiles);
   return {
     mode,
@@ -345,9 +352,12 @@ function buildRotationSignal(feature, context) {
       vixSma20: round(feature.VIX.sma20, 2),
       tnxFiveDayChange: round(feature.TNX.change5, 3),
       smhRelativeStrong: feature.smhSpy.value > feature.smhSpy.sma20,
-      xlkRelativeStrong: feature.xlkSpy.value > feature.xlkSpy.sma20
+      xlkRelativeStrong: feature.xlkSpy.value > feature.xlkSpy.sma20,
+      atmospherePhase: atmosphere.phase,
+      atmosphereRiskBudget: atmosphere.riskBudget
     },
     events,
+    atmosphere,
     targets: targetRows,
     strategyProfiles,
     strategyComparison,
@@ -489,19 +499,297 @@ function normalize(weights) {
   return out;
 }
 
-function buildStrategyProfiles(feature, mode, market, events, mgrTargets, mgrRows) {
-  const phase = dynamicPhase(feature, market, events);
-  const dmaTargets = applyDmaOverlay(feature, mgrTargets, phase);
-  const dmaRows = Object.entries(dmaTargets).map(([symbol, weight]) => ({
+function rowsFromTargets(feature, targets, mode, scoreFn) {
+  return Object.entries(targets).map(([symbol, weight]) => ({
     symbol,
     name: targetName(symbol),
     weight,
     weightPct: round(weight * 100, 1),
     price: symbol === "CASH" ? null : round(feature[symbol].close, 2),
     role: targetRole(symbol, mode),
-    score: symbol === "CASH" ? null : round(dynamicSymbolScore(feature, symbol), 4),
+    score: symbol === "CASH" ? null : round(scoreFn(symbol), 4),
     action: actionText(symbol, weight, mode)
   }));
+}
+
+function buildAtmosphereState(feature, context = {}, market, events) {
+  const indicators = Array.isArray(context.indicators) ? context.indicators : [];
+  const byId = new Map(indicators.map((item) => [item.id, item]));
+  const score = (id, fallback = 0) => toNumber(byId.get(id)?.score, fallback);
+  const value = (id, fallback = 0) => toNumber(byId.get(id)?.value, fallback);
+  const trend20 = (id, fallback = 0) => toNumber(byId.get(id)?.trend20, fallback);
+  const trend60 = (id, fallback = 0) => toNumber(byId.get(id)?.trend60, fallback);
+  const okIndicators = indicators.filter((item) => item.status === "ok" && Number.isFinite(Number(item.score)));
+  const pressureScore = averageOr(
+    okIndicators.filter((item) => Number(item.score) < 0).slice(0, 8).map((item) => Math.abs(Number(item.score))),
+    0
+  );
+  const supportScore = averageOr(
+    okIndicators.filter((item) => Number(item.score) > 0).slice(0, 8).map((item) => Number(item.score)),
+    0
+  );
+
+  const marketScore = clamp(toNumber(context.marketScore, (market.score - 3) / 3), -1, 1);
+  const riskRegimeScore = clamp(toNumber(context.riskRegime?.score, feature.dynamic.stressScore * 100) / 100, 0, 1);
+  const correlationRisk = clamp((value("cross_asset_correlation", feature.dynamic.crossCorr20) - 0.50) / 0.38, 0, 1);
+  const ctaValue = value("cta_pressure_proxy", 0);
+  const ctaRisk = clamp((-ctaValue - 10) / 70, 0, 1);
+  const ctaRelief = clamp((ctaValue + 25) / 75, 0, 1);
+  const creditStress = clamp(
+    Math.max(
+      -score("hyg_lqd", 0),
+      -trend20("hyg_lqd", 0) / 2,
+      score("dxy", 0) < 0 && trend20("dxy", 0) > 1.5 ? 0.4 : 0
+    ),
+    0,
+    1
+  );
+  const liquidityScore = clamp((score("fed_balance", 0) + score("btc_funding", 0) + score("vix_term_spread", 0)) / 3, -1, 1);
+  const breadthScore = clamp((score("rsp_spy", 0) + score("iwm_spy", 0) + score("rut", 0)) / 3, -1, 1);
+  const techLeadership = clamp(
+    (
+      (feature.smhSpy.value > feature.smhSpy.sma20 ? 0.45 : -0.25)
+      + (feature.xlkSpy.value > feature.xlkSpy.sma20 ? 0.35 : -0.20)
+      + score("nasdaq", 0)
+    ) / 1.8,
+    -1,
+    1
+  );
+  const crossBorderPressure = clamp(
+    Math.max(
+      -averageOr([score("kweb", 0), score("hsi", 0), score("cnh", 0)], 0),
+      feature.USDKRW.ret10 > 0.035 ? 0.55 : 0,
+      trend60("kweb", 0) < -10 ? 0.45 : 0
+    ),
+    0,
+    1
+  );
+
+  const anomalyStats = buildAnomalyStats(context.anomalyRadar);
+  const eventPressure = buildEventPressure(events, context.upcomingEvents);
+  const structure = buildStructurePressure(context.marketStructure);
+  const databasePressure = buildDatabasePressure(context.databaseInsights);
+  const fragility = clamp(Math.max(toNumber(structure.fragility, 0), trend60("finra_margin_debt", 0) >= 30 ? 0.8 : 0), 0, 1);
+  const riskPressure = clamp(
+    0.30 * riskRegimeScore
+      + 0.16 * structure.risk
+      + 0.13 * fragility
+      + 0.12 * correlationRisk
+      + 0.10 * eventPressure
+      + 0.08 * creditStress
+      + 0.07 * anomalyStats.heat
+      + 0.04 * databasePressure,
+    0,
+    1
+  );
+  const repairCredit = clamp(
+    0.30 * structure.bottomSupport
+      + 0.22 * Math.max(breadthScore, 0)
+      + 0.18 * Math.max(liquidityScore, 0)
+      + 0.15 * ctaRelief
+      + 0.15 * Math.max(techLeadership, 0),
+    0,
+    1
+  );
+  const riskBudget = clamp(0.52 + 0.24 * marketScore + 0.22 * repairCredit - 0.44 * riskPressure, 0.18, 0.94);
+  const phase = atmospherePhase({
+    market,
+    events,
+    riskRegime: context.riskRegime,
+    riskPressure,
+    riskBudget,
+    repairCredit,
+    eventPressure,
+    anomalyHeat: anomalyStats.heat,
+    techLeadership,
+    structure
+  });
+
+  const state = {
+    phase,
+    riskBudget: round(riskBudget, 4),
+    cashFloor: round(atmosphereCashFloor({
+      riskPressure,
+      repairCredit,
+      eventPressure,
+      fragility,
+      marketScore,
+      riskBudget,
+      riskRegimeScore,
+      phase
+    }), 4),
+    riskPressure: round(riskPressure, 4),
+    repairCredit: round(repairCredit, 4),
+    marketScore: round(marketScore, 4),
+    riskRegimeScore: round(riskRegimeScore, 4),
+    pressureScore: round(pressureScore, 4),
+    supportScore: round(supportScore, 4),
+    breadthScore: round(breadthScore, 4),
+    liquidityScore: round(liquidityScore, 4),
+    techLeadership: round(techLeadership, 4),
+    crossBorderPressure: round(crossBorderPressure, 4),
+    correlationRisk: round(correlationRisk, 4),
+    ctaRisk: round(ctaRisk, 4),
+    eventPressure: round(eventPressure, 4),
+    anomalyHeat: round(anomalyStats.heat, 4),
+    semiconductorHeat: round(anomalyStats.semiconductorHeat, 4),
+    fragility: round(fragility, 4),
+    structureRisk: round(structure.risk, 4),
+    databasePressure: round(databasePressure, 4),
+    sourceCoverage: {
+      indicators: indicators.length,
+      okIndicators: okIndicators.length,
+      highAnomalies: anomalyStats.highCount,
+      sectorMoves: anomalyStats.sectorCount,
+      structureType: context.marketStructure?.diagnosis?.type || "unknown",
+      riskRegime: context.riskRegime?.name || "unknown"
+    }
+  };
+  state.drivers = buildAtmosphereDrivers(state, context, byId, anomalyStats, structure);
+  state.notes = [
+    "v2 consumes dashboard atmosphere, not only symbol price history.",
+    "paper_candidate until rolling validation promotes it."
+  ];
+  return state;
+}
+
+function atmospherePhase(input) {
+  const eventGuard = input.events.fomcWindow || input.events.opexWindow || input.events.quarterWindow || input.events.muEarningsWindow;
+  if (
+    input.riskRegime?.level === "danger"
+    || input.structure.vetoCount > 0
+    || (input.market.state === "red" && input.riskPressure >= 0.55)
+    || input.riskPressure >= 0.72
+  ) return "capital_defense";
+  if (eventGuard || input.eventPressure >= 0.46) return "event_guard";
+  if (input.structure.bottomStage >= 3 && input.repairCredit >= 0.42 && input.riskPressure >= 0.30) return "fragile_repair";
+  if (input.anomalyHeat >= 0.58 && input.techLeadership >= 0.25 && input.riskPressure <= 0.58) return "selective_momentum";
+  if (input.riskBudget >= 0.68 && input.repairCredit >= 0.45) return "risk_on";
+  if (input.riskBudget <= 0.38 || input.riskPressure >= 0.60) return "risk_reduction";
+  return "balanced_selective";
+}
+
+function atmosphereCashFloor(input) {
+  let cash = DMA_RS_V2_PARAMS.minCash
+    + 0.28 * input.riskPressure
+    + 0.07 * input.eventPressure
+    + 0.06 * input.fragility
+    - 0.08 * input.repairCredit
+    - 0.04 * Math.max(input.marketScore, 0)
+    - 0.04 * Math.max(input.riskBudget - 0.55, 0);
+  if (input.phase === "capital_defense") cash = Math.max(cash, DMA_RS_V2_PARAMS.highRiskCash);
+  if (input.phase === "event_guard") cash = Math.max(cash, 0.14);
+  if (input.phase === "risk_reduction") cash = Math.max(cash, 0.22);
+  if (input.phase === "fragile_repair") cash = clamp(cash, 0.08, 0.26);
+  if (input.phase === "selective_momentum") cash = clamp(cash - DMA_RS_V2_PARAMS.riskOnCashCut / 2, 0.05, 0.20);
+  if (input.phase === "risk_on") cash = clamp(cash - DMA_RS_V2_PARAMS.riskOnCashCut, 0.03, 0.14);
+  return clamp(cash, DMA_RS_V2_PARAMS.minCash, DMA_RS_V2_PARAMS.maxCash);
+}
+
+function buildAnomalyStats(anomalyRadar = {}) {
+  const equities = (anomalyRadar.equityAnomalies || []).filter((item) => item.status === "ok");
+  const sectors = (anomalyRadar.sectorMoves || []).filter((item) => item.status === "ok");
+  const high = equities.filter((item) => item.severity === "high");
+  const highUp = high.filter((item) => item.direction === "up").length;
+  const highDown = high.filter((item) => item.direction === "down").length;
+  const semiEquities = high.filter((item) => /semi|半导体|electronic components/i.test(`${item.sectorLabel || ""} ${item.industryLabel || ""} ${item.classification || ""}`));
+  const semiSector = sectors.find((item) => item.symbol === "SMH");
+  const techSectors = sectors.filter((item) => /SMH|XLK|XLC|XLY/.test(item.symbol || "") && item.direction === "up");
+  const heat = clamp((high.length / 24) + (sectors.length / 10) + Math.max(highUp - highDown, 0) / 36, 0, 1);
+  const semiconductorHeat = clamp((semiEquities.length / 8) + (semiSector?.direction === "up" ? 0.25 : 0) + (techSectors.length / 12), 0, 1);
+  return {
+    heat,
+    semiconductorHeat,
+    highCount: high.length,
+    highUp,
+    highDown,
+    sectorCount: sectors.length
+  };
+}
+
+function buildEventPressure(events, upcomingEvents = {}) {
+  const allEvents = [
+    ...(upcomingEvents.highAttention || []),
+    ...(upcomingEvents.macro || []),
+    ...(upcomingEvents.earnings || [])
+  ];
+  const nearCount = allEvents.filter((event) => {
+    const days = Number(event.daysUntil);
+    return Number.isFinite(days) && days >= 0 && days <= 3;
+  }).length;
+  let score = Math.min(nearCount, 4) * 0.08;
+  if (events.fomcWindow) score += 0.32;
+  if (events.opexWindow) score += 0.18;
+  if (events.quarterWindow) score += 0.22;
+  if (events.muEarningsWindow) score += 0.24;
+  return clamp(score, 0, 1);
+}
+
+function buildStructurePressure(marketStructure = {}) {
+  const diagnosis = marketStructure.diagnosis || {};
+  const bottom = marketStructure.bottom || {};
+  const fragility = marketStructure.fragility || {};
+  const vetoCount = Array.isArray(bottom.vetoes) ? bottom.vetoes.length : 0;
+  const bottomStage = toNumber(bottom.stage, 0);
+  const fragilityScore = toNumber(
+    fragility.score,
+    fragility.level === "high" ? 0.85 : fragility.level === "medium" ? 0.52 : fragility.level === "low" ? 0.20 : 0
+  );
+  let risk = 0;
+  if (diagnosis.type === "mechanical") risk += 0.34;
+  else if (diagnosis.type === "mixed") risk += 0.24;
+  else if (diagnosis.type === "fundamental") risk += 0.30;
+  if (bottom.blocked) risk += 0.30;
+  if (vetoCount) risk += Math.min(vetoCount, 3) * 0.16;
+  if (fragility.level === "high") risk += 0.22;
+  else if (fragility.level === "medium") risk += 0.12;
+  const bottomSupport = !bottom.blocked && bottomStage >= 3 ? Math.min(1, bottomStage / 4) : 0;
+  return {
+    risk: clamp(risk, 0, 1),
+    bottomSupport,
+    bottomStage,
+    vetoCount,
+    fragility: clamp(fragilityScore, 0, 1),
+    label: diagnosis.label || "unknown"
+  };
+}
+
+function buildDatabasePressure(databaseInsights = {}) {
+  const signals = databaseInsights.indicatorSignals || [];
+  const high = signals.filter((item) => item.severity === "high" || item.type === "breakout").length;
+  const revisions = databaseInsights.eventRevisions || [];
+  return clamp(high * 0.12 + Math.min(revisions.length, 5) * 0.03, 0, 1);
+}
+
+function buildAtmosphereDrivers(state, context, byId, anomalyStats, structure) {
+  const indicatorName = (id) => byId.get(id)?.name || id;
+  const topPressures = [...byId.values()]
+    .filter((item) => item.status === "ok" && Number(item.score) < 0)
+    .sort((a, b) => Number(a.score) - Number(b.score))
+    .slice(0, 3)
+    .map((item) => `${item.name}: ${round(item.score, 2)}`);
+  const topSupports = [...byId.values()]
+    .filter((item) => item.status === "ok" && Number(item.score) > 0)
+    .sort((a, b) => Number(b.score) - Number(a.score))
+    .slice(0, 3)
+    .map((item) => `${item.name}: +${round(item.score, 2)}`);
+  return [
+    `riskRegime ${context.riskRegime?.name || "unknown"} / ${round(state.riskRegimeScore * 100, 0)}`,
+    `marketScore ${round(state.marketScore, 2)}; riskBudget ${round(state.riskBudget * 100, 1)}%`,
+    `structure ${structure.label}; bottomStage ${structure.bottomStage}`,
+    `anomaly high ${anomalyStats.highCount}, sector moves ${anomalyStats.sectorCount}`,
+    `pressure ${topPressures.join(" | ") || "none"}`,
+    `support ${topSupports.join(" | ") || "none"}`,
+    `breadth ${round(state.breadthScore, 2)}, liquidity ${round(state.liquidityScore, 2)}, ${indicatorName("cross_asset_correlation")} risk ${round(state.correlationRisk, 2)}`
+  ];
+}
+
+function buildStrategyProfiles(feature, mode, market, events, mgrTargets, mgrRows, atmosphere) {
+  const phase = dynamicPhase(feature, market, events);
+  const dmaTargets = applyDmaOverlay(feature, mgrTargets, phase);
+  const dmaRows = rowsFromTargets(feature, dmaTargets, mode, (symbol) => dynamicSymbolScore(feature, symbol));
+  const atmosphereTargets = applyAtmosphereOverlay(feature, mgrTargets, atmosphere, events);
+  const atmosphereRows = rowsFromTargets(feature, atmosphereTargets, mode, (symbol) => atmosphereSymbolScore(feature, symbol, atmosphere));
   return [
     {
       id: "mgr-go-v1",
@@ -542,6 +830,34 @@ function buildStrategyProfiles(feature, mode, market, events, mgrTargets, mgrRow
         status: "research candidate, not default execution"
       },
       targets: dmaRows
+    },
+    {
+      id: "dma-rs-v2-atmosphere",
+      name: "DMA-RS v2 Atmosphere-Fused",
+      status: "paper_candidate",
+      title: "氛围融合候选策略",
+      summary: atmosphereSummary(atmosphere, atmosphereTargets),
+      mode,
+      phase: atmosphere.phase,
+      diagnostics: {
+        riskBudget: atmosphere.riskBudget,
+        cashFloor: atmosphere.cashFloor,
+        riskPressure: atmosphere.riskPressure,
+        repairCredit: atmosphere.repairCredit,
+        riskRegimeScore: atmosphere.riskRegimeScore,
+        marketScore: atmosphere.marketScore,
+        eventPressure: atmosphere.eventPressure,
+        anomalyHeat: atmosphere.anomalyHeat,
+        structureRisk: atmosphere.structureRisk,
+        fragility: atmosphere.fragility
+      },
+      drivers: atmosphere.drivers,
+      sleeves: buildAtmosphereSleeves(atmosphereTargets),
+      backtest: {
+        validation: "live paper profile; rolling validation required before default execution",
+        status: "uses MktMood atmosphere dimensions beyond price-only signal"
+      },
+      targets: atmosphereRows
     }
   ];
 }
@@ -600,6 +916,154 @@ function applyDmaOverlay(feature, mgrTargets, phase) {
   return normalize(out);
 }
 
+function applyAtmosphereOverlay(feature, mgrTargets, atmosphere, events) {
+  const out = { ...mgrTargets };
+  const cashFloor = atmosphere.cashFloor;
+  raiseCashTo(out, cashFloor, atmosphere);
+  const caps = atmosphereCaps(atmosphere, events);
+  capToCash(out, caps);
+
+  const deployable = Math.max(0, out.CASH - cashFloor);
+  const deployPct = atmosphereDeployPct(atmosphere);
+  if (deployable > 0.005 && deployPct > 0) {
+    deployAtmosphereCash(feature, out, deployable * deployPct, atmosphere, caps);
+  }
+
+  raiseCashTo(out, cashFloor, atmosphere);
+  capToCash(out, caps);
+  return normalize(out);
+}
+
+function atmosphereCaps(atmosphere, events) {
+  let tqqqCap = Math.min(
+    DMA_RS_V2_PARAMS.maxTqqq,
+    Math.max(0, 0.02 + 0.18 * atmosphere.riskBudget - 0.12 * atmosphere.riskPressure)
+  );
+  if (atmosphere.phase === "event_guard") tqqqCap = Math.min(tqqqCap, DMA_RS_V2_PARAMS.guardedTqqq);
+  if (atmosphere.phase === "capital_defense" || atmosphere.phase === "risk_reduction") tqqqCap = Math.min(tqqqCap, 0.025);
+  if (events.muEarningsWindow) tqqqCap = Math.min(tqqqCap, 0.05);
+  if (atmosphere.semiconductorHeat > 0.65 && atmosphere.riskPressure < 0.52) tqqqCap = Math.min(DMA_RS_V2_PARAMS.maxTqqq, tqqqCap + 0.02);
+
+  let muCap = DMA_RS_V2_PARAMS.maxMu
+    - 0.14 * atmosphere.fragility
+    - 0.10 * atmosphere.eventPressure
+    + 0.08 * atmosphere.semiconductorHeat
+    + 0.04 * Math.max(atmosphere.techLeadership, 0);
+  if (events.muEarningsWindow) muCap = Math.min(muCap, BEST_PARAMS.earningsMuCap);
+  if (atmosphere.phase === "capital_defense") muCap = Math.min(muCap, 0.18);
+  if (atmosphere.phase === "risk_reduction") muCap = Math.min(muCap, 0.24);
+
+  let ewyCap = DMA_RS_V2_PARAMS.maxEwy
+    - 0.13 * atmosphere.crossBorderPressure
+    - 0.08 * atmosphere.riskPressure
+    + 0.05 * Math.max(atmosphere.breadthScore, 0);
+  if (atmosphere.phase === "capital_defense") ewyCap = Math.min(ewyCap, 0.10);
+  if (atmosphere.phase === "risk_reduction") ewyCap = Math.min(ewyCap, 0.16);
+
+  let qqqCap = DMA_RS_V2_PARAMS.coreQqqMax;
+  if (atmosphere.phase === "capital_defense") qqqCap = 0.58;
+  if (atmosphere.phase === "risk_on") qqqCap = 0.72;
+
+  return {
+    QQQ: clamp(qqqCap, DMA_RS_V2_PARAMS.coreQqqMin, 0.74),
+    MU: clamp(muCap, 0.08, DMA_RS_V2_PARAMS.maxMu),
+    EWY: clamp(ewyCap, 0.05, DMA_RS_V2_PARAMS.maxEwy),
+    TQQQ: clamp(tqqqCap, 0, DMA_RS_V2_PARAMS.maxTqqq)
+  };
+}
+
+function raiseCashTo(weights, targetCash, atmosphere) {
+  let need = targetCash - weights.CASH;
+  if (need <= 1e-9) return;
+  const order = atmosphere.phase === "capital_defense" || atmosphere.phase === "risk_reduction"
+    ? ["TQQQ", "MU", "EWY", "QQQ"]
+    : ["TQQQ", "EWY", "MU", "QQQ"];
+  for (const symbol of order) {
+    if (need <= 1e-9) break;
+    const minWeight = symbol === "QQQ" ? Math.min(DMA_RS_V2_PARAMS.coreQqqMin, weights.QQQ) : 0;
+    const room = Math.max(0, weights[symbol] - minWeight);
+    const cut = Math.min(room, need);
+    weights[symbol] -= cut;
+    weights.CASH += cut;
+    need -= cut;
+  }
+}
+
+function capToCash(weights, caps) {
+  for (const [symbol, cap] of Object.entries(caps)) {
+    if (weights[symbol] > cap) {
+      const excess = weights[symbol] - cap;
+      weights[symbol] = cap;
+      weights.CASH += excess;
+    }
+  }
+}
+
+function atmosphereDeployPct(atmosphere) {
+  if (atmosphere.phase === "capital_defense" || atmosphere.phase === "event_guard") return 0;
+  if (atmosphere.phase === "fragile_repair") return 0.35;
+  if (atmosphere.phase === "selective_momentum") return 0.50;
+  if (atmosphere.phase === "risk_on") return 0.85;
+  if (atmosphere.phase === "balanced_selective") return atmosphere.riskBudget >= 0.55 ? 0.25 : 0;
+  return 0;
+}
+
+function deployAtmosphereCash(feature, weights, amount, atmosphere, caps) {
+  let remaining = Math.min(amount, weights.CASH);
+  const ranked = ["QQQ", "MU", "EWY", "TQQQ"]
+    .map((symbol) => ({ symbol, score: atmosphereSymbolScore(feature, symbol, atmosphere) }))
+    .sort((a, b) => b.score - a.score);
+  for (const item of ranked) {
+    if (remaining <= 1e-9) break;
+    const cap = caps[item.symbol] ?? 1;
+    const room = Math.max(0, cap - weights[item.symbol]);
+    const add = Math.min(room, remaining);
+    weights[item.symbol] += add;
+    weights.CASH -= add;
+    remaining -= add;
+  }
+}
+
+function atmosphereSymbolScore(feature, symbol, atmosphere) {
+  if (symbol === "CASH") return 0;
+  const base = dynamicSymbolScore(feature, symbol);
+  if (symbol === "QQQ") {
+    return base
+      + 0.65 * atmosphere.techLeadership
+      + 0.35 * Math.max(atmosphere.breadthScore, 0)
+      - 0.35 * atmosphere.riskPressure;
+  }
+  if (symbol === "MU") {
+    return base
+      + 1.05 * atmosphere.semiconductorHeat
+      + 0.45 * atmosphere.techLeadership
+      - 0.55 * atmosphere.fragility
+      - 0.35 * atmosphere.eventPressure;
+  }
+  if (symbol === "EWY") {
+    return base
+      + 0.35 * Math.max(atmosphere.breadthScore, 0)
+      - 0.90 * atmosphere.crossBorderPressure
+      - 0.35 * atmosphere.riskPressure;
+  }
+  if (symbol === "TQQQ") {
+    return base
+      + 1.05 * atmosphere.riskBudget
+      + 0.55 * atmosphere.techLeadership
+      - 1.25 * atmosphere.riskPressure
+      - 0.65 * atmosphere.eventPressure;
+  }
+  return base;
+}
+
+function buildAtmosphereSleeves(targets) {
+  return {
+    coreHoldPct: round((targets.QQQ + 0.50 * targets.MU + 0.45 * targets.EWY) * 100, 1),
+    swingPct: round((targets.TQQQ + 0.35 * targets.MU + 0.25 * targets.EWY) * 100, 1),
+    reserveCashPct: round(targets.CASH * 100, 1)
+  };
+}
+
 function deployCash(feature, weights, amount) {
   const caps = { QQQ: 0.72, MU: 0.58, EWY: 0.35, TQQQ: 0.18 };
   let remaining = Math.min(amount, weights.CASH);
@@ -647,9 +1111,26 @@ function dmaSummary(phase, targets) {
   return `DMA-RS v1 处于 transition，保持默认保护配置，现金 ${cash}%。`;
 }
 
+function atmosphereSummary(atmosphere, targets) {
+  const cash = round((targets.CASH || 0) * 100, 1);
+  const riskBudget = round(atmosphere.riskBudget * 100, 1);
+  const cashFloor = round(atmosphere.cashFloor * 100, 1);
+  const phaseText = {
+    capital_defense: "资本防守",
+    event_guard: "事件保护",
+    fragile_repair: "脆弱修复",
+    selective_momentum: "选择性动量",
+    risk_on: "风险进攻",
+    risk_reduction: "降风险",
+    balanced_selective: "均衡精选"
+  }[atmosphere.phase] || atmosphere.phase;
+  return `DMA-RS v2 处于${phaseText}；风险预算 ${riskBudget}%，现金底线 ${cashFloor}%，当前现金 ${cash}%。`;
+}
+
 function compareStrategyProfiles(profiles) {
   const defaultProfile = profiles.find((item) => item.id === "mgr-go-v1");
-  const candidate = profiles.find((item) => item.id === "dma-rs-v1-candidate");
+  const candidate = profiles.find((item) => item.id === "dma-rs-v2-atmosphere")
+    || profiles.find((item) => item.id === "dma-rs-v1-candidate");
   if (!defaultProfile || !candidate) return null;
   const baseMap = Object.fromEntries(defaultProfile.targets.map((item) => [item.symbol, item.weightPct]));
   const candidateMap = Object.fromEntries(candidate.targets.map((item) => [item.symbol, item.weightPct]));
@@ -662,8 +1143,8 @@ function compareStrategyProfiles(profiles) {
   return {
     defaultStrategyId: defaultProfile.id,
     candidateStrategyId: candidate.id,
-    recommendation: "keep_default_live_use_candidate_for_paper_tracking",
-    summary: "默认仍执行 MGR-GO v1；DMA-RS v1 作为候选策略并排跟踪。",
+    recommendation: "keep_mgr_go_live_track_atmosphere_candidate",
+    summary: "默认仍执行 MGR-GO v1；DMA-RS v2 作为氛围融合候选策略并排跟踪。",
     deltas
   };
 }
@@ -840,6 +1321,11 @@ function average(values) {
   return clean.reduce((sum, value) => sum + value, 0) / clean.length;
 }
 
+function averageOr(values, fallback = 0) {
+  const result = average(values.map((value) => Number(value)));
+  return Number.isFinite(result) ? result : fallback;
+}
+
 function pctChange(values, days) {
   const current = values.at(-1);
   const previous = values.at(-1 - days);
@@ -901,6 +1387,11 @@ function round(value, digits = 2) {
 function clamp(value, min, max) {
   if (!Number.isFinite(Number(value))) return min;
   return Math.max(min, Math.min(max, Number(value)));
+}
+
+function toNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 module.exports = {

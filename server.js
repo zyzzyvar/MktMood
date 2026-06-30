@@ -772,6 +772,8 @@ async function buildSnapshot() {
     indicators,
     upcomingEvents,
     anomalyRadar,
+    marketStructure,
+    databaseInsights,
     riskRegime,
     marketScore
   });
