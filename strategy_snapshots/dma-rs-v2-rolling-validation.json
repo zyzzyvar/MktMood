@@ -1,0 +1,65 @@
+{
+  "strategy": "DMA-RS v2 Atmosphere-Fused rolling validation",
+  "as_of": "2026-06-29",
+  "outdir": "C:\\Users\\Administrator\\Downloads\\us_dma_rs_v2_rolling_output",
+  "helper_dir": "C:\\Users\\Administrator\\Downloads",
+  "best_static_variant": "v2_offense",
+  "low_disturbance_months": [
+    "2024-10",
+    "2025-02"
+  ],
+  "validation_periods": {
+    "train_2023_2024": [
+      "2023-01-01",
+      "2024-12-31"
+    ],
+    "val_2025": [
+      "2025-01-01",
+      "2025-12-31"
+    ],
+    "test_2026ytd": [
+      "2026-01-01",
+      "2026-06-30"
+    ],
+    "oos_2024_2026ytd": [
+      "2024-01-01",
+      "2026-06-30"
+    ],
+    "full_2023_2026ytd": [
+      "2023-01-01",
+      "2026-06-30"
+    ]
+  },
+  "recommendation": {
+    "decision": "keep_as_paper_candidate",
+    "reason": "DMA-RS v2 improves drawdown in selected windows but does not consistently beat MGR-GO v1 or DMA-RS v1 on return."
+  },
+  "deployed_proxy": {
+    "phase": "event_guard",
+    "risk_budget": 0.5103795455274445,
+    "cash_floor": 0.19270930338614634,
+    "risk_pressure": 0.39971531077973166,
+    "repair_credit": 0.5177673993339361,
+    "targets": {
+      "QQQ": 0.5,
+      "MU": 0.22,
+      "EWY": 0.087291,
+      "TQQQ": 0.0,
+      "CASH": 0.192709
+    }
+  },
+  "best_static": {
+    "variant": "v2_offense",
+    "targets": {
+      "QQQ": 0.5,
+      "MU": 0.22,
+      "EWY": 0.13,
+      "TQQQ": 0.01,
+      "CASH": 0.14
+    }
+  },
+  "caveats": [
+    "Historical validation uses transparent proxies for live-only dashboard dimensions.",
+    "Do not promote v2 to default until paper tracking and broker-position-aware execution are reviewed."
+  ]
+}
