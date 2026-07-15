@@ -21,6 +21,19 @@ const {
 } = require("./deleveraging");
 const { buildPositioningStrategy } = require("./positioning");
 
+process.on("unhandledRejection", (reason) => {
+  console.error("[process] unhandledRejection", reason);
+});
+
+let fatalExitScheduled = false;
+process.on("uncaughtException", (error) => {
+  console.error("[process] uncaughtException", error);
+  if (!fatalExitScheduled) {
+    fatalExitScheduled = true;
+    setTimeout(() => process.exit(1), 1000).unref();
+  }
+});
+
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -53,6 +66,12 @@ let snapshotCache = null;
 let snapshotPromise = null;
 let nasdaqStockRowsCache = null;
 let nasdaqStockRowsPromise = null;
+
+function asyncRoute(handler) {
+  return (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(next);
+  };
+}
 
 const yahooIndicators = [
   {
@@ -539,51 +558,63 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, updatedAt: new Date().toISOString(), storage: getDbStatus() });
+  res.json({
+    ok: true,
+    updatedAt: new Date().toISOString(),
+    pid: process.pid,
+    uptimeSec: Math.round(process.uptime()),
+    memory: process.memoryUsage(),
+    cache: {
+      hasSnapshot: Boolean(snapshotCache),
+      ageMs: snapshotCache ? Date.now() - snapshotCache.createdAt : null,
+      building: Boolean(snapshotPromise)
+    },
+    storage: getDbStatus()
+  });
 });
 
-app.get("/api/snapshot", async (_req, res) => {
+app.get("/api/snapshot", asyncRoute(async (_req, res) => {
   const snapshot = await getSnapshot();
   res.json(snapshot);
-});
+}));
 
-app.get("/api/frameworks", async (_req, res) => {
+app.get("/api/frameworks", asyncRoute(async (_req, res) => {
   const snapshot = await getSnapshot();
   res.json({
     updatedAt: snapshot.updatedAt,
     frameworks: snapshot.frameworks,
     dimensions: snapshot.dimensions
   });
-});
+}));
 
-app.get("/api/events", async (_req, res) => {
+app.get("/api/events", asyncRoute(async (_req, res) => {
   const snapshot = await getSnapshot();
   res.json({
     updatedAt: snapshot.updatedAt,
     upcomingEvents: snapshot.upcomingEvents,
     eventRevisions: snapshot.databaseInsights?.eventRevisions || []
   });
-});
+}));
 
-app.get("/api/events/revisions", async (_req, res) => {
+app.get("/api/events/revisions", asyncRoute(async (_req, res) => {
   const snapshot = await getSnapshot();
   res.json({
     updatedAt: snapshot.updatedAt,
     storage: snapshot.storage,
     eventRevisions: snapshot.databaseInsights?.eventRevisions || []
   });
-});
+}));
 
-app.get("/api/anomalies", async (_req, res) => {
+app.get("/api/anomalies", asyncRoute(async (_req, res) => {
   const snapshot = await getSnapshot();
   res.json({
     updatedAt: snapshot.updatedAt,
     storage: snapshot.storage,
     anomalyRadar: snapshot.anomalyRadar
   });
-});
+}));
 
-app.get("/api/market-structure", async (_req, res) => {
+app.get("/api/market-structure", asyncRoute(async (_req, res) => {
   const snapshot = await getSnapshot();
   res.json({
     updatedAt: snapshot.updatedAt,
@@ -591,18 +622,18 @@ app.get("/api/market-structure", async (_req, res) => {
     sourceStatus: snapshot.marketStructureSources,
     storage: snapshot.storage
   });
-});
+}));
 
-app.get("/api/positioning", async (_req, res) => {
+app.get("/api/positioning", asyncRoute(async (_req, res) => {
   const snapshot = await getSnapshot();
   res.json({
     updatedAt: snapshot.updatedAt,
     positioning: snapshot.positioning,
     storage: snapshot.storage
   });
-});
+}));
 
-app.get("/api/history/indicators/:id", async (req, res) => {
+app.get("/api/history/indicators/:id", asyncRoute(async (req, res) => {
   const id = String(req.params.id);
   const limit = Number(req.query.limit || 200);
   const [observations, historyPoints] = await Promise.all([
@@ -615,9 +646,9 @@ app.get("/api/history/indicators/:id", async (req, res) => {
     observations,
     historyPoints
   });
-});
+}));
 
-app.get("/api/history/events/:key", async (req, res) => {
+app.get("/api/history/events/:key", asyncRoute(async (req, res) => {
   const key = String(req.params.key);
   const limit = Number(req.query.limit || 100);
   res.json({
@@ -625,16 +656,16 @@ app.get("/api/history/events/:key", async (req, res) => {
     storage: getDbStatus(),
     observations: await getEventObservationHistory(key, limit)
   });
-});
+}));
 
-app.get("/api/signals", async (req, res) => {
+app.get("/api/signals", asyncRoute(async (req, res) => {
   res.json({
     storage: getDbStatus(),
     signals: await getRecentSignals(Number(req.query.limit || 100))
   });
-});
+}));
 
-app.get("/api/hermes/monitor", async (req, res) => {
+app.get("/api/hermes/monitor", asyncRoute(async (req, res) => {
   const snapshot = await getSnapshot();
   const minSeverity = String(req.query.minSeverity || "high");
   const limit = Math.min(Number(req.query.limit || 12), 30);
@@ -653,9 +684,9 @@ app.get("/api/hermes/monitor", async (req, res) => {
     nextSuggestedCheckMinutes: 60,
     storage: snapshot.storage
   });
-});
+}));
 
-app.get("/api/agent/context", async (req, res) => {
+app.get("/api/agent/context", asyncRoute(async (req, res) => {
   const snapshot = await getSnapshot();
   const frameworkId = String(req.query.framework || "liquidity-risk");
   const selected = snapshot.frameworks.find((item) => item.id === frameworkId) || snapshot.frameworks[0];
@@ -697,13 +728,30 @@ app.get("/api/agent/context", async (req, res) => {
       .map((item) => ({ id: item.id, name: item.name, source: item.source, status: item.status, error: item.error })),
     disclaimer: "This is market context, not investment advice. Combine it with position sizing, portfolio rules, and security-level research."
   });
-});
+}));
 
 app.get("/{*splat}", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-app.listen(PORT, HOST, () => {
+app.use((error, req, res, _next) => {
+  console.error("[http] request failed", {
+    method: req.method,
+    url: req.originalUrl,
+    message: error?.message,
+    stack: error?.stack
+  });
+  if (res.headersSent) return;
+  res.status(500).json({
+    ok: false,
+    error: "internal_error",
+    message: error?.message || "Unexpected server error",
+    updatedAt: new Date().toISOString(),
+    pid: process.pid
+  });
+});
+
+const server = app.listen(PORT, HOST, () => {
   const publicHost = HOST === "0.0.0.0" || HOST === "::" ? "0.0.0.0" : HOST;
   console.log(`Market atmosphere dashboard running at http://${publicHost}:${PORT}`);
   console.log(`Local access: http://localhost:${PORT}`);
@@ -712,6 +760,10 @@ app.listen(PORT, HOST, () => {
     else if (status.enabled) console.warn(`PostgreSQL storage unavailable: ${status.lastError}`);
   });
 });
+
+server.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS || 180000);
+server.headersTimeout = Number(process.env.HTTP_HEADERS_TIMEOUT_MS || 65000);
+server.keepAliveTimeout = Number(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS || 5000);
 
 async function getSnapshot() {
   if (snapshotCache && Date.now() - snapshotCache.createdAt < CACHE_MS) {
@@ -722,7 +774,20 @@ async function getSnapshot() {
   snapshotPromise = buildSnapshot().finally(() => {
     snapshotPromise = null;
   });
-  return snapshotPromise;
+  try {
+    return await snapshotPromise;
+  } catch (error) {
+    if (snapshotCache?.data) {
+      console.error("[snapshot] refresh failed; serving stale snapshot", error);
+      return {
+        ...snapshotCache.data,
+        staleSnapshot: true,
+        staleReason: error.message,
+        staleServedAt: new Date().toISOString()
+      };
+    }
+    throw error;
+  }
 }
 
 async function buildSnapshot() {

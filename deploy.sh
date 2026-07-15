@@ -19,6 +19,7 @@ echo "==> Syntax check"
 node --check server.js
 node --check db.js
 node --check positioning.js
+node --check ecosystem.config.js
 node --check public/app.js
 node --check deleveraging.js
 if [ -f playbooks.js ]; then
@@ -52,7 +53,7 @@ if [ -n "$PID_ON_PORT" ]; then
 fi
 
 echo "==> Start app with PM2"
-pm2 start server.js --name "$APP_NAME" --cwd "$APP_DIR" --update-env
+APP_NAME="$APP_NAME" PORT="$PORT" pm2 startOrReload ecosystem.config.js --only "$APP_NAME" --update-env
 pm2 save
 
 echo "==> Wait for service"
@@ -77,6 +78,11 @@ curl -fsS --max-time 10 "$LOCAL_URL/app.js" | grep -q "renderMacroInterpretation
 echo "==> Verify health API"
 curl -fsS --max-time 10 "$LOCAL_URL/api/health"
 echo
+
+echo "==> Verify process health fields"
+curl -fsS --max-time 10 "$LOCAL_URL/api/health" | grep -q '"pid"' \
+  && echo "Process health check passed" \
+  || { echo "ERROR: Health API missing process fields"; exit 1; }
 
 echo "==> Verify macro playbook API marker"
 if curl -fsS --max-time 60 "$LOCAL_URL/api/events" | grep -q "higherThanExpected"; then
